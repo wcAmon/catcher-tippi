@@ -4,11 +4,16 @@ mod cache;
 mod encoder;
 mod layers;
 mod prompt;
+mod rnnt;
 
 pub use cache::CausalConv1dCache;
 pub use encoder::{EncoderConfig, StreamingChunkPlan};
 pub use layers::{DepthwiseConv1d, LayerNorm, PointwiseConv1d, QuantizedLinear, Tensor3};
 pub use prompt::{LanguagePrompt, PromptProjector};
+pub use rnnt::{
+    GreedyRnnt, JointNetwork, LstmCell, LstmState, PredictionNetwork, PredictionState,
+    QuantizedEmbedding, StreamingRnntDecoder,
+};
 
 /// Errors produced by model layers and cache management.
 #[derive(Debug, thiserror::Error)]

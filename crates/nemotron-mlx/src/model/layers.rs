@@ -120,6 +120,10 @@ impl QuantizedLinear {
     pub(crate) fn output_dims(&self) -> usize {
         self.output_dims
     }
+
+    pub(crate) fn input_dims(&self) -> usize {
+        self.input_dims
+    }
 }
 
 /// Quantized 1x1 convolution over `[batch, time, channels]` input.

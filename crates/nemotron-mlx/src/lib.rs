@@ -3,4 +3,5 @@
 pub mod audio;
 pub mod backend;
 pub mod model;
+pub mod tokenizer;
 pub mod weights;

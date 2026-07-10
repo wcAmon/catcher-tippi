@@ -8,6 +8,14 @@ use nemotron_mlx::weights::{
 };
 use safetensors::tensor::{Dtype as SafeDType, TensorView, serialize_to_file};
 
+static MLX_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_mlx() -> std::sync::MutexGuard<'static, ()> {
+    MLX_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn write_source(path: &std::path::Path, matrix: &[f32], depthwise: &[f32]) {
     let matrix = TensorView::new(SafeDType::F32, vec![2, 128], cast_slice(matrix)).unwrap();
     let depthwise = TensorView::new(SafeDType::F32, vec![2, 1, 3], cast_slice(depthwise)).unwrap();
@@ -39,6 +47,7 @@ fn specs() -> Vec<TensorSpec> {
 
 #[test]
 fn converts_and_loads_an_mlx_int8_artifact() {
+    let _guard = lock_mlx();
     let temp = tempfile::tempdir().unwrap();
     let source_path = temp.path().join("source.safetensors");
     let artifact_path = temp.path().join("artifact");
@@ -81,6 +90,7 @@ fn converts_and_loads_an_mlx_int8_artifact() {
 
 #[test]
 fn quantized_layer_uses_packed_artifact_arrays_directly() {
+    let _guard = lock_mlx();
     let temp = tempfile::tempdir().unwrap();
     let source_path = temp.path().join("source.safetensors");
     let artifact_path = temp.path().join("artifact");
@@ -105,6 +115,7 @@ fn quantized_layer_uses_packed_artifact_arrays_directly() {
 
 #[test]
 fn rejects_a_source_tensor_with_the_wrong_shape() {
+    let _guard = lock_mlx();
     let temp = tempfile::tempdir().unwrap();
     let source_path = temp.path().join("source.safetensors");
     let artifact_path = temp.path().join("artifact");
@@ -125,6 +136,7 @@ fn rejects_a_source_tensor_with_the_wrong_shape() {
 
 #[test]
 fn full_model_conversion_requires_the_published_checkpoint_layout() {
+    let _guard = lock_mlx();
     let temp = tempfile::tempdir().unwrap();
     let source_path = temp.path().join("source.safetensors");
     let artifact_path = temp.path().join("artifact");
