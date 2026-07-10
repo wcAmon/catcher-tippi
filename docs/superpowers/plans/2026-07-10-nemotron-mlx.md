@@ -102,14 +102,14 @@
 - Create: `crates/nemotron-mlx/tests/model_layers.rs`
 
 **Interfaces:**
-- Produces: `QuantizedLinear`, `PointwiseConv1d`, `DepthwiseConv1d`, `CausalConv2d`, `LayerNorm`, and typed cache structs.
+- Produces: `QuantizedLinear`, `PointwiseConv1d`, `DepthwiseConv1d`, `LayerNorm`, `Tensor3`, and `CausalConv1dCache`; Conv2D subsampling remains part of Task 6 because its cache shape is encoder-specific.
 - Consumes: arrays loaded by Task 3 and delegates operations only through the backend module.
 
-- [ ] Write failing deterministic tests for each primitive, including cache update behavior across two chunks.
-- [ ] Verify failures are caused by missing layer types.
-- [ ] Implement minimal MLX-backed primitives, using INT8 matmul for matrix/pointwise weights and FP16 convolution for depthwise/subsampling weights.
-- [ ] Compare all primitive outputs to stored FP32 reference vectors.
-- [ ] Commit as `feat: add MLX Nemotron model primitives`.
+- [x] Write failing deterministic tests for each primitive, including cache update behavior across two chunks.
+- [x] Verify failures are caused by missing layer types.
+- [x] Implement minimal MLX-backed primitives, using INT8 matmul for matrix/pointwise weights and FP16 convolution for depthwise weights.
+- [x] Compare all primitive outputs to stored FP32 reference vectors.
+- [x] Commit as `feat: add MLX Nemotron model primitives`.
 
 ### Task 6: Cache-aware FastConformer encoder and language prompt
 
