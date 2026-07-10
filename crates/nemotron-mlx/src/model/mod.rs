@@ -19,6 +19,9 @@ pub enum ModelError {
     /// An evaluated MLX array could not be read.
     #[error(transparent)]
     ArraySlice(#[from] mlx_rs::error::AsSliceError),
+    /// A converted model artifact is missing or has incompatible storage.
+    #[error(transparent)]
+    Artifact(#[from] crate::weights::ArtifactError),
     /// Input, weight, or cache dimensions are inconsistent.
     #[error("invalid model shape: {0}")]
     InvalidShape(String),

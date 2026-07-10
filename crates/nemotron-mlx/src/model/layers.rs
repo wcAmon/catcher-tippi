@@ -2,6 +2,7 @@ use half::f16;
 use mlx_rs::Array;
 
 use super::{CausalConv1dCache, ModelError, ModelResult};
+use crate::weights::Artifact;
 
 /// Owned row-major rank-three tensor returned to Rust control flow.
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +26,43 @@ pub struct QuantizedLinear {
 }
 
 impl QuantizedLinear {
+    /// Binds directly to packed affine INT8 arrays from a converted artifact.
+    pub fn from_artifact(
+        artifact: &Artifact,
+        weight_name: &str,
+        bias_name: Option<&str>,
+    ) -> ModelResult<Self> {
+        let (qweight, scales, quant_biases, group_size, shape) =
+            artifact.quantized_arrays(weight_name)?;
+        if shape.len() != 2 {
+            return Err(ModelError::InvalidShape(format!(
+                "linear artifact {weight_name} must have rank 2, found {shape:?}"
+            )));
+        }
+        let output_dims = shape[0];
+        let input_dims = shape[1];
+        let output_bias = if let Some(name) = bias_name {
+            let bias = artifact.f16_array(name)?;
+            if bias.shape() != [output_dims as i32] {
+                return Err(ModelError::InvalidShape(format!(
+                    "linear bias {name} must have shape [{output_dims}]"
+                )));
+            }
+            bias
+        } else {
+            Array::zeros::<f16>(&[output_dims as i32])?
+        };
+        Ok(Self {
+            input_dims,
+            output_dims,
+            group_size,
+            qweight,
+            scales,
+            quant_biases,
+            output_bias,
+        })
+    }
+
     /// Quantizes an F32 row-major `[output_dims, input_dims]` weight matrix.
     pub fn from_f32(
         weight: &[f32],

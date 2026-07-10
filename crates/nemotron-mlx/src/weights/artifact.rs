@@ -166,6 +166,37 @@ impl Artifact {
         Ok(output.try_as_slice::<f32>()?.to_vec())
     }
 
+    pub(crate) fn quantized_arrays(
+        &self,
+        name: &str,
+    ) -> ArtifactResult<(Array, Array, Array, usize, Vec<usize>)> {
+        let info = self.require_tensor(name)?;
+        let Storage::Int8Affine { group_size } = info.storage else {
+            return Err(ArtifactError::IncompatibleStorage {
+                name: name.to_string(),
+                storage: info.storage,
+            });
+        };
+        Ok((
+            self.require_array(&format!("{name}.__qweight"))?.clone(),
+            self.require_array(&format!("{name}.__scales"))?.clone(),
+            self.require_array(&format!("{name}.__biases"))?.clone(),
+            group_size,
+            info.shape.clone(),
+        ))
+    }
+
+    pub(crate) fn f16_array(&self, name: &str) -> ArtifactResult<Array> {
+        let info = self.require_tensor(name)?;
+        if info.storage != Storage::F16 {
+            return Err(ArtifactError::IncompatibleStorage {
+                name: name.to_string(),
+                storage: info.storage,
+            });
+        }
+        Ok(self.require_array(name)?.clone())
+    }
+
     fn require_tensor(&self, name: &str) -> ArtifactResult<&ArtifactTensorInfo> {
         self.tensor_info(name)
             .ok_or_else(|| ArtifactError::MissingArtifactTensor(name.to_string()))

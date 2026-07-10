@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use approx::assert_abs_diff_eq;
 use bytemuck::cast_slice;
+use nemotron_mlx::model::QuantizedLinear;
 use nemotron_mlx::weights::{
     Artifact, DType, Storage, TensorSpec, TensorTransform, convert_model, convert_tensors,
 };
@@ -75,6 +76,30 @@ fn converts_and_loads_an_mlx_int8_artifact() {
     let loaded_depthwise = artifact.f16_to_f32("depthwise.weight").unwrap();
     for (actual, expected) in loaded_depthwise.iter().zip(depthwise.iter()) {
         assert_abs_diff_eq!(actual, expected, epsilon = 0.001);
+    }
+}
+
+#[test]
+fn quantized_layer_uses_packed_artifact_arrays_directly() {
+    let temp = tempfile::tempdir().unwrap();
+    let source_path = temp.path().join("source.safetensors");
+    let artifact_path = temp.path().join("artifact");
+    let matrix: Vec<f32> = (0..256)
+        .map(|index| ((index % 17) as f32 - 8.0) / 19.0)
+        .collect();
+    write_source(&source_path, &matrix, &[0.0; 6]);
+    convert_tensors(&source_path, &artifact_path, "fixture/model", &specs()).unwrap();
+    let artifact = Artifact::load(&artifact_path).unwrap();
+    let layer = QuantizedLinear::from_artifact(&artifact, "matrix.weight", None).unwrap();
+    let input: Vec<f32> = (0..128).map(|index| index as f32 / 127.0).collect();
+
+    let actual = layer.forward_f32(&input, 1).unwrap();
+    let expected: Vec<f32> = matrix
+        .chunks_exact(128)
+        .map(|row| row.iter().zip(&input).map(|(a, b)| a * b).sum())
+        .collect();
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert_abs_diff_eq!(*actual, expected, epsilon = 0.04);
     }
 }
 
