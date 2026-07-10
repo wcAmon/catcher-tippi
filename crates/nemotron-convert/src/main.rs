@@ -1,0 +1,32 @@
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use clap::Parser;
+use nemotron_mlx::weights::convert_model;
+
+/// Convert the published Nemotron 3.5 F32 safetensors checkpoint to an MLX INT8 artifact.
+#[derive(Debug, Parser)]
+#[command(name = "nemotron-convert", version, about)]
+struct Arguments {
+    /// Source Hugging Face model.safetensors file.
+    #[arg(long)]
+    source: PathBuf,
+
+    /// New output directory for weights.safetensors and manifest.json.
+    #[arg(long)]
+    output: PathBuf,
+}
+
+fn main() -> ExitCode {
+    let arguments = Arguments::parse();
+    match convert_model(&arguments.source, &arguments.output) {
+        Ok(()) => {
+            println!("wrote MLX INT8 artifact to {}", arguments.output.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("conversion failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}

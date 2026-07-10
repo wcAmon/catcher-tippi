@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 /// Tensor element types accepted in source and release artifacts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DType {
     /// IEEE half precision.
     F16,
@@ -14,7 +14,7 @@ pub enum DType {
 }
 
 /// On-disk representation selected for a tensor in the MLX artifact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Storage {
     /// MLX affine weight-only INT8 with per-group scale and bias.
     Int8Affine { group_size: usize },
@@ -27,7 +27,7 @@ pub enum Storage {
 }
 
 /// Shape-only transform applied before quantization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TensorTransform {
     /// Preserve the source tensor shape.
     Identity,
@@ -48,7 +48,7 @@ pub struct TensorMetadata {
 pub type TensorIndex = BTreeMap<String, TensorMetadata>;
 
 /// Required source tensor and its destination storage policy.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TensorSpec {
     /// Hugging Face safetensors name.
     pub name: String,

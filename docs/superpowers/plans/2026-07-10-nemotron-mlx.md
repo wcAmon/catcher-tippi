@@ -69,11 +69,11 @@
 - Produces: `convert_model(source, destination, QuantizationConfig { bits: 8, group_size: 128 })`.
 - Produces: an artifact containing packed weights, FP16 scales, FP16 affine biases, FP16 exceptions, tokenizer/config files, and `manifest.json`.
 
-- [ ] Write a failing round-trip test using a small deterministic safetensors fixture with one matrix and one depthwise convolution.
-- [ ] Verify the test fails because converter and loader APIs are missing.
-- [ ] Implement checked safetensors reading, MLX INT8 packing, FP16 exception conversion, atomic artifact writing, and artifact loading.
-- [ ] Verify reconstructed fixture values meet the declared tolerance and corrupt manifests are rejected.
-- [ ] Commit as `feat: convert safetensors to MLX INT8 artifacts`.
+- [x] Write a failing round-trip test using a small deterministic safetensors fixture with one matrix and one depthwise convolution.
+- [x] Verify the test fails because converter and loader APIs are missing.
+- [x] Implement checked safetensors reading, MLX INT8 packing, FP16 exception conversion, atomic artifact writing, and artifact loading.
+- [x] Verify reconstructed fixture values meet the declared tolerance and corrupt manifests are rejected.
+- [x] Commit as `feat: convert safetensors to MLX INT8 artifacts`.
 
 ### Task 4: Audio frontend
 
