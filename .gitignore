@@ -1,0 +1,8 @@
+.DS_Store
+/target/
+/models/
+/artifacts/
+*.wav
+*.safetensors
+*.nemo
+
