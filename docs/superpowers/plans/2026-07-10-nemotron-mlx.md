@@ -49,11 +49,11 @@
 - Produces: `TensorSpec { name, shape, storage }`, `Storage::{Int8Affine { group_size }, F16, F32, I32}`.
 - Produces: `ModelManifest::nemotron_3_5()` and `ModelManifest::validate(&TensorIndex)`.
 
-- [ ] Write failing tests for the configured model dimensions, group-size divisibility, a missing tensor, and an incorrect tensor shape.
-- [ ] Run `cargo test -p nemotron-mlx --test weight_manifest` and verify failures are caused by missing manifest types.
-- [ ] Implement the manifest and validation errors with exact tensor names derived from the Hugging Face config and safetensors index.
-- [ ] Run the manifest test and the full crate tests until all pass without warnings.
-- [ ] Commit as `feat: validate Nemotron weight manifests`.
+- [x] Write failing tests for the configured model dimensions, group-size divisibility, a missing tensor, and an incorrect tensor shape.
+- [x] Run `cargo test -p nemotron-mlx --test weight_manifest` and verify failures are caused by missing manifest types.
+- [x] Implement the manifest and validation errors with exact tensor names derived from the Hugging Face config and safetensors index.
+- [x] Run the manifest test and the full crate tests until all pass without warnings.
+- [x] Commit as `feat: validate Nemotron weight manifests`.
 
 ### Task 3: Rust weight converter and MLX artifact loader
 
