@@ -84,14 +84,14 @@
 - Create: `tests/fixtures/log_mel_reference.json`
 
 **Interfaces:**
-- Produces: `LogMelFrontend::new(16_000, 512, 160, 128)`.
-- Produces: `LogMelFrontend::push(&[f32]) -> Vec<[f32; 128]>` and `flush()`.
+- Produces: `LogMelFrontend::nemotron()` and explicit `LogMelFrontend::new(...)`.
+- Produces: `LogMelFrontend::extract(&[f32], center: bool) -> Vec<Vec<f32>>`; the streaming scheduler supplies the documented overlap for subsequent uncentered chunks.
 
-- [ ] Add failing tests for frame count, silence output, chunk-boundary equivalence, and the official feature-extractor reference fixture.
-- [ ] Verify the tests fail because the frontend is absent.
-- [ ] Implement centered/streaming STFT buffering, Slaney mel filters, log guard, and exact frame accounting in Rust.
-- [ ] Verify chunked and one-shot features match within tolerance.
-- [ ] Commit as `feat: add streaming Nemotron log-mel frontend`.
+- [x] Add failing tests for frame count, silence output, chunk-boundary equivalence, and the official feature-extractor reference fixture.
+- [x] Verify the tests fail because the frontend is absent.
+- [x] Implement centered/streaming STFT buffering, Slaney mel filters, log guard, and exact frame accounting in Rust.
+- [x] Verify chunked and one-shot features match within tolerance.
+- [x] Commit as `feat: add streaming Nemotron log-mel frontend`.
 
 ### Task 5: Quantized model primitives
 

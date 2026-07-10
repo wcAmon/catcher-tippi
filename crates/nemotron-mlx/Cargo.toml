@@ -11,6 +11,7 @@ mlx-rs = { version = "0.25.3", default-features = false, features = ["accelerate
 mlx-sys = { version = "=0.2.0", default-features = false, features = ["accelerate", "metal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rustfft = "6"
 tempfile = "3"
 thiserror = "2"
 
