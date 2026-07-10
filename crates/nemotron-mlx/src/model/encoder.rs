@@ -1,4 +1,128 @@
-use super::{ModelError, ModelResult};
+use super::{
+    CausalConv2dCache, Fp16Conv2d, ModelError, ModelResult, QuantizedLinear, Tensor3, Tensor4,
+};
+
+/// Per-layer time caches for factor-N causal Conv2D subsampling.
+#[derive(Debug, Clone)]
+pub struct SubsamplingCache {
+    layers: Vec<CausalConv2dCache>,
+}
+
+impl SubsamplingCache {
+    pub fn new(
+        input_frequency_bins: usize,
+        channels: usize,
+        kernel_size: usize,
+        stride: usize,
+        stages: usize,
+    ) -> Self {
+        let left_frames = kernel_size - stride;
+        let initial_extra_frames = kernel_size - 1 - left_frames;
+        let mut frequency = input_frequency_bins;
+        let mut layers = Vec::with_capacity(stages);
+        for stage in 0..stages {
+            layers.push(CausalConv2dCache::new(
+                frequency,
+                if stage == 0 { 1 } else { channels },
+                left_frames,
+                initial_extra_frames,
+            ));
+            frequency = (frequency + (kernel_size - 1) + (stride - 1) - kernel_size) / stride + 1;
+        }
+        Self { layers }
+    }
+}
+
+/// Three-stage causal Conv2D subsampling followed by the encoder input projection.
+#[derive(Debug)]
+pub struct Conv2dSubsampling {
+    stem: Fp16Conv2d,
+    stages: Vec<(Fp16Conv2d, QuantizedLinear)>,
+    output: QuantizedLinear,
+}
+
+impl Conv2dSubsampling {
+    pub fn new(
+        stem: Fp16Conv2d,
+        stages: Vec<(Fp16Conv2d, QuantizedLinear)>,
+        output: QuantizedLinear,
+    ) -> ModelResult<Self> {
+        if stages.is_empty() {
+            return Err(ModelError::InvalidShape(
+                "subsampling requires at least one depthwise-separable stage".to_string(),
+            ));
+        }
+        Ok(Self {
+            stem,
+            stages,
+            output,
+        })
+    }
+
+    pub fn forward(&self, input: &Tensor3, cache: &mut SubsamplingCache) -> ModelResult<Tensor3> {
+        let [batch, time, mel_bins] = input.shape;
+        if batch != 1 || input.values.len() != time * mel_bins {
+            return Err(ModelError::InvalidShape(
+                "subsampling input must have shape [1,time,mel_bins]".to_string(),
+            ));
+        }
+        if cache.layers.len() != self.stages.len() + 1 {
+            return Err(ModelError::InvalidShape(
+                "subsampling cache layer count does not match model".to_string(),
+            ));
+        }
+        let mut hidden = self.stem.forward_causal(
+            &Tensor4 {
+                shape: [1, time, mel_bins, 1],
+                values: input.values.clone(),
+            },
+            &mut cache.layers[0],
+        )?;
+        relu_in_place(&mut hidden.values);
+
+        for (stage_index, (depthwise, pointwise)) in self.stages.iter().enumerate() {
+            hidden = depthwise.forward_causal(&hidden, &mut cache.layers[stage_index + 1])?;
+            let rows = hidden.shape[1] * hidden.shape[2];
+            hidden.values = pointwise.forward_f32(&hidden.values, rows)?;
+            hidden.shape[3] = pointwise.output_dims();
+            relu_in_place(&mut hidden.values);
+        }
+
+        let rows = hidden.shape[1];
+        let values = self.output.forward_f32(&hidden.values, rows)?;
+        Ok(Tensor3 {
+            shape: [1, rows, self.output.output_dims()],
+            values,
+        })
+    }
+}
+
+fn relu_in_place(values: &mut [f32]) {
+    for value in values {
+        *value = value.max(0.0);
+    }
+}
+
+/// Offline form of the checkpoint's chunk-limited bidirectional attention mask.
+pub fn chunked_attention_mask(
+    sequence_length: usize,
+    left_context: usize,
+    right_context: usize,
+) -> Vec<bool> {
+    let chunk_size = right_context + 1;
+    let left_context_chunks = left_context / chunk_size;
+    let mut mask = vec![false; sequence_length * sequence_length];
+    for query in 0..sequence_length {
+        let query_chunk = query / chunk_size;
+        for key in 0..sequence_length {
+            let key_chunk = key / chunk_size;
+            if query_chunk >= key_chunk && query_chunk - key_chunk <= left_context_chunks {
+                mask[query * sequence_length + key] = true;
+            }
+        }
+    }
+    mask
+}
 
 /// Encoder dimensions and streaming constants from the published checkpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 use half::f16;
 use mlx_rs::Array;
 
-use super::{CausalConv1dCache, ModelError, ModelResult};
+use super::{CausalConv1dCache, CausalConv2dCache, ModelError, ModelResult};
 use crate::weights::Artifact;
 
 /// Owned row-major rank-three tensor returned to Rust control flow.
@@ -11,6 +11,159 @@ pub struct Tensor3 {
     pub shape: [usize; 3],
     /// Row-major values.
     pub values: Vec<f32>,
+}
+
+/// Owned NHWC tensor whose second dimension is streaming time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tensor4 {
+    /// `[batch, time, frequency, channels]` dimensions.
+    pub shape: [usize; 4],
+    /// Row-major values.
+    pub values: Vec<f32>,
+}
+
+/// FP16 MLX Conv2D with NeMo's asymmetric causal time/frequency padding.
+#[derive(Debug)]
+pub struct Fp16Conv2d {
+    input_channels: usize,
+    output_channels: usize,
+    kernel_size: usize,
+    stride: usize,
+    groups: usize,
+    weight: Array,
+    bias: Array,
+}
+
+impl Fp16Conv2d {
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_f32(
+        pytorch_weight: &[f32],
+        bias: &[f32],
+        output_channels: usize,
+        input_channels: usize,
+        kernel_size: usize,
+        stride: usize,
+        groups: usize,
+    ) -> ModelResult<Self> {
+        if groups == 0
+            || input_channels % groups != 0
+            || output_channels % groups != 0
+            || stride == 0
+            || bias.len() != output_channels
+            || pytorch_weight.len()
+                != output_channels * (input_channels / groups) * kernel_size * kernel_size
+        {
+            return Err(ModelError::InvalidShape(
+                "Conv2D weight, bias, stride, or groups are invalid".to_string(),
+            ));
+        }
+
+        // PyTorch OIHW -> MLX OHWI.
+        let channels_per_group = input_channels / groups;
+        let mut mlx_weight = vec![0.0; pytorch_weight.len()];
+        for output in 0..output_channels {
+            for input in 0..channels_per_group {
+                for kernel_t in 0..kernel_size {
+                    for kernel_f in 0..kernel_size {
+                        let source = (((output * channels_per_group + input) * kernel_size
+                            + kernel_t)
+                            * kernel_size)
+                            + kernel_f;
+                        let destination = (((output * kernel_size + kernel_t) * kernel_size
+                            + kernel_f)
+                            * channels_per_group)
+                            + input;
+                        mlx_weight[destination] = pytorch_weight[source];
+                    }
+                }
+            }
+        }
+        let weight = Array::from_slice(
+            &mlx_weight,
+            &[
+                output_channels as i32,
+                kernel_size as i32,
+                kernel_size as i32,
+                channels_per_group as i32,
+            ],
+        )
+        .as_type::<f16>()?;
+        let bias = Array::from_slice(bias, &[output_channels as i32]).as_type::<f16>()?;
+        Ok(Self {
+            input_channels,
+            output_channels,
+            kernel_size,
+            stride,
+            groups,
+            weight,
+            bias,
+        })
+    }
+
+    pub fn forward_causal(
+        &self,
+        input: &Tensor4,
+        cache: &mut CausalConv2dCache,
+    ) -> ModelResult<Tensor4> {
+        let [batch, time, frequency, channels] = input.shape;
+        if batch != 1
+            || channels != self.input_channels
+            || input.values.len() != batch * time * frequency * channels
+        {
+            return Err(ModelError::InvalidShape(format!(
+                "Conv2D input must be [1,time,freq,{}]",
+                self.input_channels
+            )));
+        }
+        let (combined, combined_time) =
+            cache.prepend_and_update(&input.values, time, frequency, channels)?;
+        let left_frequency_pad = self.kernel_size - 1;
+        let right_frequency_pad = self.stride - 1;
+        let padded_frequency = frequency + left_frequency_pad + right_frequency_pad;
+        let mut padded = vec![0.0; combined_time * padded_frequency * channels];
+        for frame in 0..combined_time {
+            for bin in 0..frequency {
+                let source = (frame * frequency + bin) * channels;
+                let destination = (frame * padded_frequency + bin + left_frequency_pad) * channels;
+                padded[destination..destination + channels]
+                    .copy_from_slice(&combined[source..source + channels]);
+            }
+        }
+        let input = Array::from_slice(
+            &padded,
+            &[
+                1,
+                combined_time as i32,
+                padded_frequency as i32,
+                channels as i32,
+            ],
+        )
+        .as_type::<f16>()?;
+        let output = mlx_rs::ops::conv2d(
+            &input,
+            &self.weight,
+            (self.stride as i32, self.stride as i32),
+            (0, 0),
+            (1, 1),
+            self.groups as i32,
+        )?
+        .add(&self.bias)?
+        .as_type::<f32>()?;
+        let shape = output.shape();
+        let output_shape = [
+            shape[0] as usize,
+            shape[1] as usize,
+            shape[2] as usize,
+            shape[3] as usize,
+        ];
+        output.eval()?;
+        let values = output.try_as_slice::<f32>()?.to_vec();
+        debug_assert_eq!(output_shape[3], self.output_channels);
+        Ok(Tensor4 {
+            shape: output_shape,
+            values,
+        })
+    }
 }
 
 /// Affine INT8 MLX linear layer with an FP16 output bias.

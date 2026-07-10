@@ -1,5 +1,9 @@
 use approx::assert_abs_diff_eq;
-use nemotron_mlx::model::{EncoderConfig, LanguagePrompt, PromptProjector, StreamingChunkPlan};
+use nemotron_mlx::model::{
+    AttentionKvCache, CausalConv2dCache, Conv2dSubsampling, EncoderConfig, Fp16Conv2d,
+    LanguagePrompt, PromptProjector, QuantizedLinear, StreamingChunkPlan, SubsamplingCache,
+    Tensor3, Tensor4, chunked_attention_mask,
+};
 
 static MLX_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -83,4 +87,217 @@ fn prompt_projector_broadcasts_one_hot_over_time() {
     assert_abs_diff_eq!(output.values[hidden], 3.0, epsilon = 0.04);
     assert_abs_diff_eq!(output.values[5], 1.0, epsilon = 0.04);
     assert_abs_diff_eq!(output.values[hidden + 5], 1.0, epsilon = 0.04);
+}
+
+#[test]
+fn causal_conv2d_first_and_subsequent_chunks_use_exact_padding_cache() {
+    let _guard = MLX_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let conv = Fp16Conv2d::from_f32(&[1.0; 9], &[0.0], 1, 1, 3, 2, 1).unwrap();
+    let mut cache = CausalConv2dCache::new(4, 1, 1, 1);
+    let first = Tensor4 {
+        shape: [1, 3, 4, 1],
+        values: (1..=12).map(|value| value as f32).collect(),
+    };
+
+    let first_output = conv.forward_causal(&first, &mut cache).unwrap();
+    assert_eq!(first_output.shape, [1, 2, 3, 1]);
+    assert_eq!(cache.values(), &[9.0, 10.0, 11.0, 12.0]);
+    let expected_first = conv2d_reference(&first.values, 3, 4, true);
+    for (actual, expected) in first_output.values.iter().zip(expected_first) {
+        assert_abs_diff_eq!(*actual, expected, epsilon = 1.0e-3);
+    }
+
+    let second = Tensor4 {
+        shape: [1, 2, 4, 1],
+        values: (13..=20).map(|value| value as f32).collect(),
+    };
+    let second_output = conv.forward_causal(&second, &mut cache).unwrap();
+    assert_eq!(second_output.shape, [1, 1, 3, 1]);
+    assert_eq!(cache.values(), &[17.0, 18.0, 19.0, 20.0]);
+    let mut cached_second = vec![9.0, 10.0, 11.0, 12.0];
+    cached_second.extend_from_slice(&second.values);
+    let expected_second = conv2d_reference(&cached_second, 3, 4, false);
+    for (actual, expected) in second_output.values.iter().zip(expected_second) {
+        assert_abs_diff_eq!(*actual, expected, epsilon = 1.0e-3);
+    }
+}
+
+fn conv2d_reference(input: &[f32], time: usize, freq: usize, first: bool) -> Vec<f32> {
+    assert_eq!(input.len(), time * freq);
+    let mut temporal = if first {
+        vec![0.0; 2 * freq]
+    } else {
+        Vec::new()
+    };
+    temporal.extend_from_slice(input);
+    let padded_time = temporal.len() / freq;
+    let out_time = (padded_time - 3) / 2 + 1;
+    let out_freq = (freq + 3 - 3) / 2 + 1;
+    let mut output = Vec::with_capacity(out_time * out_freq);
+    for out_t in 0..out_time {
+        for out_f in 0..out_freq {
+            let mut sum = 0.0;
+            for kernel_t in 0..3 {
+                for kernel_f in 0..3 {
+                    let source_f = out_f * 2 + kernel_f;
+                    if (2..2 + freq).contains(&source_f) {
+                        sum += temporal[(out_t * 2 + kernel_t) * freq + source_f - 2];
+                    }
+                }
+            }
+            output.push(sum);
+        }
+    }
+    output
+}
+
+#[test]
+fn factor_eight_subsampling_matches_one_shot_across_chunk_boundary() {
+    let _guard = MLX_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let channels = 128;
+    let (offline_model, mut offline_cache) = tiny_subsampling(channels);
+    let (streaming_model, mut streaming_cache) = tiny_subsampling(channels);
+    let input: Vec<f32> = (0..17 * 8)
+        .map(|index| ((index % 23) as f32 - 11.0) / 17.0)
+        .collect();
+    let offline = offline_model
+        .forward(
+            &Tensor3 {
+                shape: [1, 17, 8],
+                values: input.clone(),
+            },
+            &mut offline_cache,
+        )
+        .unwrap();
+    let first = streaming_model
+        .forward(
+            &Tensor3 {
+                shape: [1, 9, 8],
+                values: input[..9 * 8].to_vec(),
+            },
+            &mut streaming_cache,
+        )
+        .unwrap();
+    let second = streaming_model
+        .forward(
+            &Tensor3 {
+                shape: [1, 8, 8],
+                values: input[9 * 8..].to_vec(),
+            },
+            &mut streaming_cache,
+        )
+        .unwrap();
+
+    assert_eq!(offline.shape, [1, 3, channels]);
+    assert_eq!(first.shape, [1, 2, channels]);
+    assert_eq!(second.shape, [1, 1, channels]);
+    let mut streamed = first.values;
+    streamed.extend_from_slice(&second.values);
+    for (actual, expected) in streamed.iter().zip(offline.values) {
+        assert_abs_diff_eq!(*actual, expected, epsilon = 3.0e-3);
+    }
+}
+
+fn tiny_subsampling(channels: usize) -> (Conv2dSubsampling, SubsamplingCache) {
+    let stem = Fp16Conv2d::from_f32(
+        &vec![0.01; channels * 3 * 3],
+        &vec![0.0; channels],
+        channels,
+        1,
+        3,
+        2,
+        1,
+    )
+    .unwrap();
+    let mut stages = Vec::new();
+    for _ in 0..2 {
+        let depthwise = Fp16Conv2d::from_f32(
+            &vec![0.01; channels * 3 * 3],
+            &vec![0.0; channels],
+            channels,
+            channels,
+            3,
+            2,
+            channels,
+        )
+        .unwrap();
+        let pointwise = QuantizedLinear::from_f32(
+            &identity(channels),
+            channels,
+            channels,
+            &vec![0.0; channels],
+            128,
+        )
+        .unwrap();
+        stages.push((depthwise, pointwise));
+    }
+    let mut output_weight = vec![0.0; channels * channels * 2];
+    for channel in 0..channels {
+        output_weight[channel * channels * 2 + channel] = 0.5;
+        output_weight[channel * channels * 2 + channels + channel] = 0.5;
+    }
+    let output = QuantizedLinear::from_f32(
+        &output_weight,
+        channels,
+        channels * 2,
+        &vec![0.0; channels],
+        128,
+    )
+    .unwrap();
+    (
+        Conv2dSubsampling::new(stem, stages, output).unwrap(),
+        SubsamplingCache::new(8, channels, 3, 2, 3),
+    )
+}
+
+fn identity(dimensions: usize) -> Vec<f32> {
+    let mut output = vec![0.0; dimensions * dimensions];
+    for index in 0..dimensions {
+        output[index * dimensions + index] = 1.0;
+    }
+    output
+}
+
+#[test]
+fn attention_cache_returns_old_plus_current_and_retains_sliding_window() {
+    let mut cache = AttentionKvCache::new(2, 2, 3);
+    let first_keys: Vec<f32> = (0..8).map(|value| value as f32).collect();
+    let first_values: Vec<f32> = (100..108).map(|value| value as f32).collect();
+    let first = cache.update(&first_keys, &first_values, 2).unwrap();
+    assert_eq!(first.frames, 2);
+    assert_eq!(first.keys, first_keys);
+    assert_eq!(cache.frames(), 2);
+
+    let second_keys: Vec<f32> = (8..16).map(|value| value as f32).collect();
+    let second_values: Vec<f32> = (108..116).map(|value| value as f32).collect();
+    let second = cache.update(&second_keys, &second_values, 2).unwrap();
+    assert_eq!(second.frames, 4);
+    assert_eq!(second.keys.len(), 16);
+    assert_eq!(cache.frames(), 3);
+    // Per-head cache keeps global frames 1, 2, 3 rather than slicing flat storage.
+    assert_eq!(
+        cache.keys(),
+        &[
+            2.0, 3.0, 8.0, 9.0, 10.0, 11.0, 6.0, 7.0, 12.0, 13.0, 14.0, 15.0
+        ]
+    );
+}
+
+#[test]
+fn chunk_mask_allows_current_lookahead_and_bounded_previous_chunks() {
+    let mask = chunked_attention_mask(12, 4, 3);
+    let allowed = |query: usize, key: usize| mask[query * 12 + key];
+
+    assert!(allowed(0, 3));
+    assert!(!allowed(0, 4));
+    assert!(allowed(4, 0));
+    assert!(allowed(4, 7));
+    assert!(!allowed(4, 8));
+    assert!(!allowed(8, 3));
+    assert!(allowed(8, 4));
+    assert!(allowed(8, 11));
 }

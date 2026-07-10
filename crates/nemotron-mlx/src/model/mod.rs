@@ -6,9 +6,13 @@ mod layers;
 mod prompt;
 mod rnnt;
 
-pub use cache::CausalConv1dCache;
-pub use encoder::{EncoderConfig, StreamingChunkPlan};
-pub use layers::{DepthwiseConv1d, LayerNorm, PointwiseConv1d, QuantizedLinear, Tensor3};
+pub use cache::{AttentionKv, AttentionKvCache, CausalConv1dCache, CausalConv2dCache};
+pub use encoder::{
+    Conv2dSubsampling, EncoderConfig, StreamingChunkPlan, SubsamplingCache, chunked_attention_mask,
+};
+pub use layers::{
+    DepthwiseConv1d, Fp16Conv2d, LayerNorm, PointwiseConv1d, QuantizedLinear, Tensor3, Tensor4,
+};
 pub use prompt::{LanguagePrompt, PromptProjector};
 pub use rnnt::{
     GreedyRnnt, JointNetwork, LstmCell, LstmState, PredictionNetwork, PredictionState,
