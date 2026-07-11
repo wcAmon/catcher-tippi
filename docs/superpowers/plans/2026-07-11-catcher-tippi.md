@@ -118,25 +118,25 @@
 - Produces: `ModelFile(name: String, sha256: String, required: Bool)` for all runtime files.
 - Produces: `TippiState` cases `modelMissing`, `downloading(Double)`, `loading`, `ready`, `recording`, `finishing`, and `failed(String)`.
 
-- [ ] **Step 1: Write failing Swift tests**
+- [x] **Step 1: Write failing Swift tests**
 
   Use injected `ModelDownloading` and temporary directories. Assert that progress is monotonic, checksum mismatch removes the staging directory, a complete verified download is atomically moved to the final path, an existing valid model skips network access, and invalid state transitions are rejected.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
   Run: `swift test --package-path apps/tippi`
 
   Expected: SwiftPM fails because `Package.swift` and TippiCore types do not exist.
 
-- [ ] **Step 3: Implement model installation**
+- [x] **Step 3: Implement model installation**
 
   Use public `https://huggingface.co/wcamon/catcher-asr-mlx-int8/resolve/main/<file>?download=true` URLs. Stream downloads to a sibling `.partial` directory, compute CryptoKit SHA-256, compare `weights.safetensors`, `manifest.json`, `config.json`, and `tokenizer.json` against pinned values, and copy the remaining tokenizer/config/license notices before atomic promotion.
 
-- [ ] **Step 4: Implement the state reducer**
+- [x] **Step 4: Implement the state reducer**
 
   Keep allowed transitions explicit: missing→downloading→loading→ready; ready→recording→finishing→ready; any operational state→failed; failed→missing or ready through retry after checking the model.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
   Run: `swift test --package-path apps/tippi`
 

@@ -1,0 +1,4 @@
+module CCatcher [system] {
+    header "include/catcher.h"
+    export *
+}

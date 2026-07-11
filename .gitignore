@@ -11,3 +11,5 @@
 /.model-artifact/
 /.model-artifact-g64/
 /.worktrees/
+/apps/tippi/.build/
+/apps/tippi/build/
