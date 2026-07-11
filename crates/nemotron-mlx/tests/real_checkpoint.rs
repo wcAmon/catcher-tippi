@@ -63,7 +63,21 @@ fn real_wav_matches_official_streaming_token_ids() {
         .collect::<Vec<_>>();
     let mut transcriber = StreamingTranscriber::new(&artifact, "en-US", 3).unwrap();
 
-    let actual = transcriber.transcribe_samples(&samples).unwrap();
+    let one_shot = transcriber.transcribe_samples(&samples).unwrap();
+    assert_eq!(one_shot, expected, "official text: {}", reference.text);
+
+    transcriber.reset().unwrap();
+    let block_sizes = [127, 1_024, 333, 4_096, 511, 2_048];
+    let mut actual = Vec::new();
+    let mut offset = 0;
+    let mut block = 0;
+    while offset < samples.len() {
+        let end = (offset + block_sizes[block % block_sizes.len()]).min(samples.len());
+        actual.extend(transcriber.push_samples(&samples[offset..end]).unwrap());
+        offset = end;
+        block += 1;
+    }
+    actual.extend(transcriber.finish().unwrap());
 
     assert_eq!(actual, expected, "official text: {}", reference.text);
 }

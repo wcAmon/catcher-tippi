@@ -22,7 +22,7 @@ pub use rnnt::{
     GreedyRnnt, JointNetwork, LstmCell, LstmState, PredictionNetwork, PredictionState,
     QuantizedEmbedding, StreamingRnntDecoder,
 };
-pub use stream::StreamingTranscriber;
+pub use stream::{AudioChunk, AudioChunkScheduler, StreamingTranscriber};
 
 /// Errors produced by model layers and cache management.
 #[derive(Debug, thiserror::Error)]

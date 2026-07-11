@@ -35,25 +35,25 @@
 - Produces: `StreamingTranscriber::reset(&mut self) -> ModelResult<()>`.
 - Preserves: `transcribe_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<u32>>` as `push_samples` plus `finish`.
 
-- [ ] **Step 1: Write the failing threshold and lifecycle tests**
+- [x] **Step 1: Write the failing threshold and lifecycle tests**
 
   Add tests around a small extracted `AudioChunkScheduler` so `4_039` samples emit no chunk, sample `4_040` emits the first `[start=0,length=4_040,center=true]` chunk, later complete windows use `5_520` samples and `center=false`, and `finish` emits at most one padded tail. Add errors for push-after-finish and duplicate finish.
 
-- [ ] **Step 2: Run the new test and verify RED**
+- [x] **Step 2: Run the new test and verify RED**
 
   Run: `cargo test -p nemotron-mlx --test incremental_stream`
 
   Expected: compilation fails because `AudioChunkScheduler`, `push_samples`, `finish`, and `reset` do not exist.
 
-- [ ] **Step 3: Implement the scheduler and incremental methods**
+- [x] **Step 3: Implement the scheduler and incremental methods**
 
   Store accumulated samples, `mel_frame_index`, `first_processed`, and `finished`. Process only complete chunks during `push_samples`; at `finish`, pad the first chunk for a short utterance or the one remaining subsequent chunk. Reconstruct the encoder, decoder, and caches in `reset` without reloading `Artifact` tensors by moving their creation into reusable model fields or a private session-state constructor.
 
-- [ ] **Step 4: Prove split-input equivalence**
+- [x] **Step 4: Prove split-input equivalence**
 
   Add a gated real-checkpoint test that pushes the existing WAV in irregular blocks `[127, 1024, 333, 4096, ...]`, calls `finish`, and asserts exact token equality with both the one-shot Catcher result and the official reference IDs.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
   Run: `cargo test -p nemotron-mlx --test incremental_stream`
 

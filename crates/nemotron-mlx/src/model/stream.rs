@@ -5,6 +5,125 @@ use super::{
     StreamingEncoder, StreamingEncoderCache, StreamingRnntDecoder, Tensor3,
 };
 
+/// One exact audio window ready for the Nemotron log-mel frontend.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioChunk {
+    pub samples: Vec<f32>,
+    pub center: bool,
+    pub mel_frames: usize,
+}
+
+/// Buffers arbitrary microphone blocks into exact cache-aware model windows.
+#[derive(Debug, Clone)]
+pub struct AudioChunkScheduler {
+    plan: StreamingChunkPlan,
+    audio: Vec<f32>,
+    first_processed: bool,
+    mel_frame_index: usize,
+    finished: bool,
+}
+
+impl AudioChunkScheduler {
+    pub const fn new(plan: StreamingChunkPlan) -> Self {
+        Self {
+            plan,
+            audio: Vec::new(),
+            first_processed: false,
+            mel_frame_index: 0,
+            finished: false,
+        }
+    }
+
+    /// Appends arbitrary 16 kHz samples and returns every newly complete window.
+    pub fn push(&mut self, samples: &[f32]) -> ModelResult<Vec<AudioChunk>> {
+        self.ensure_open()?;
+        self.audio.extend_from_slice(samples);
+        let mut chunks = Vec::new();
+        loop {
+            if !self.first_processed {
+                let length = self.plan.first_audio_samples();
+                if self.audio.len() < length {
+                    break;
+                }
+                chunks.push(AudioChunk {
+                    samples: self.audio[..length].to_vec(),
+                    center: true,
+                    mel_frames: self.plan.first_mel_frames(),
+                });
+                self.first_processed = true;
+                self.mel_frame_index = self.plan.first_mel_frames();
+                continue;
+            }
+
+            let start = self.next_start()?;
+            let length = self.plan.subsequent_audio_samples();
+            if self.audio.len() < start + length {
+                break;
+            }
+            chunks.push(AudioChunk {
+                samples: self.audio[start..start + length].to_vec(),
+                center: false,
+                mel_frames: self.plan.subsequent_mel_frames(),
+            });
+            self.mel_frame_index += self.plan.subsequent_mel_frames();
+        }
+        Ok(chunks)
+    }
+
+    /// Pads and returns the final incomplete window, if the utterance is non-empty.
+    pub fn finish(&mut self) -> ModelResult<Option<AudioChunk>> {
+        self.ensure_open()?;
+        self.finished = true;
+        if self.audio.is_empty() {
+            return Ok(None);
+        }
+
+        if !self.first_processed {
+            self.first_processed = true;
+            self.mel_frame_index = self.plan.first_mel_frames();
+            return Ok(Some(AudioChunk {
+                samples: padded_slice(&self.audio, 0, self.plan.first_audio_samples()),
+                center: true,
+                mel_frames: self.plan.first_mel_frames(),
+            }));
+        }
+
+        let start = self.next_start()?;
+        if start >= self.audio.len() {
+            return Ok(None);
+        }
+        self.mel_frame_index += self.plan.subsequent_mel_frames();
+        Ok(Some(AudioChunk {
+            samples: padded_slice(&self.audio, start, self.plan.subsequent_audio_samples()),
+            center: false,
+            mel_frames: self.plan.subsequent_mel_frames(),
+        }))
+    }
+
+    /// Clears buffered audio and begins a new utterance.
+    pub fn reset(&mut self) {
+        self.audio.clear();
+        self.first_processed = false;
+        self.mel_frame_index = 0;
+        self.finished = false;
+    }
+
+    fn ensure_open(&self) -> ModelResult<()> {
+        if self.finished {
+            return Err(ModelError::InvalidShape(
+                "streaming audio session is already finished".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn next_start(&self) -> ModelResult<usize> {
+        (self.mel_frame_index * 160)
+            .checked_sub(512 / 2)
+            .ok_or_else(|| ModelError::InvalidShape("streaming audio offset underflow".to_string()))
+    }
+}
+
 /// One mono 16 kHz cache-aware encoder/RNNT session.
 pub struct StreamingTranscriber {
     frontend: LogMelFrontend,
@@ -13,8 +132,7 @@ pub struct StreamingTranscriber {
     decoder: StreamingRnntDecoder,
     decoder_state: PredictionState,
     prompt: LanguagePrompt,
-    plan: StreamingChunkPlan,
-    consumed: bool,
+    scheduler: AudioChunkScheduler,
 }
 
 impl StreamingTranscriber {
@@ -32,47 +150,46 @@ impl StreamingTranscriber {
             decoder,
             decoder_state,
             prompt: LanguagePrompt::from_code(language)?,
-            plan,
-            consumed: false,
+            scheduler: AudioChunkScheduler::new(plan),
         })
+    }
+
+    /// Appends arbitrary mono 16 kHz samples and returns newly emitted token IDs.
+    pub fn push_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<u32>> {
+        let mut output = Vec::new();
+        for chunk in self.scheduler.push(audio)? {
+            output.extend(self.decode_chunk(chunk)?);
+        }
+        Ok(output)
+    }
+
+    /// Pads the last incomplete window and returns its newly emitted token IDs.
+    pub fn finish(&mut self) -> ModelResult<Vec<u32>> {
+        let Some(chunk) = self.scheduler.finish()? else {
+            return Ok(Vec::new());
+        };
+        self.decode_chunk(chunk)
+    }
+
+    /// Starts a new utterance while retaining the already loaded model weights.
+    pub fn reset(&mut self) -> ModelResult<()> {
+        self.encoder_cache = self.encoder.new_cache();
+        self.decoder_state = self.decoder.new_state();
+        self.scheduler.reset();
+        Ok(())
     }
 
     /// Transcribes one complete mono 16 kHz utterance and returns non-blank token IDs.
     pub fn transcribe_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<u32>> {
-        if self.consumed {
-            return Err(ModelError::InvalidShape(
-                "a streaming transcriber session can consume only one utterance".to_string(),
-            ));
-        }
-        self.consumed = true;
-        if audio.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut output = Vec::new();
-        let first_audio = padded_slice(audio, 0, self.plan.first_audio_samples());
-        let first_features = self.frontend.extract(&first_audio, true);
-        self.validate_feature_count(&first_features, self.plan.first_mel_frames())?;
-        output.extend(self.decode_features(first_features)?);
-
-        let mut mel_frame_index = self.plan.first_mel_frames();
-        loop {
-            let start = mel_frame_index * 160;
-            let Some(start) = start.checked_sub(512 / 2) else {
-                return Err(ModelError::InvalidShape(
-                    "streaming audio offset underflow".to_string(),
-                ));
-            };
-            if start >= audio.len() {
-                break;
-            }
-            let chunk = padded_slice(audio, start, self.plan.subsequent_audio_samples());
-            let features = self.frontend.extract(&chunk, false);
-            self.validate_feature_count(&features, self.plan.subsequent_mel_frames())?;
-            output.extend(self.decode_features(features)?);
-            mel_frame_index += self.plan.subsequent_mel_frames();
-        }
+        let mut output = self.push_samples(audio)?;
+        output.extend(self.finish()?);
         Ok(output)
+    }
+
+    fn decode_chunk(&mut self, chunk: AudioChunk) -> ModelResult<Vec<u32>> {
+        let features = self.frontend.extract(&chunk.samples, chunk.center);
+        self.validate_feature_count(&features, chunk.mel_frames)?;
+        self.decode_features(features)
     }
 
     fn validate_feature_count(&self, features: &[Vec<f32>], expected: usize) -> ModelResult<()> {
