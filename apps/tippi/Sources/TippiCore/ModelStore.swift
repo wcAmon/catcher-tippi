@@ -9,6 +9,12 @@ public protocol ModelDownloading: Sendable {
     ) async throws
 }
 
+public protocol ModelInstalling: Sendable {
+    func installIfNeeded(
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> URL
+}
+
 public enum ModelStoreError: Error, LocalizedError {
     case invalidChecksum(file: String)
     case invalidHTTPStatus(Int)
@@ -134,6 +140,8 @@ public actor ModelStore {
             .appending(path: "Models", directoryHint: .isDirectory)
     }
 }
+
+extension ModelStore: ModelInstalling {}
 
 public struct URLSessionModelDownloader: ModelDownloading {
     public init() {}

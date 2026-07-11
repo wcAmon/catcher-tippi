@@ -157,23 +157,23 @@
 - Produces: `AudioRecording.start(onSamples:) async throws` and `stop()`.
 - Produces: `@MainActor TranscriptionController` with published `state`, `text`, `downloadProgress`, and `isRecording`.
 
-- [ ] **Step 1: Write controller tests and verify RED**
+- [x] **Step 1: Write controller tests and verify RED**
 
   With fake audio and Catcher clients, assert toggle-on clears old text and starts both services; pushed blocks update partial text; toggle-off stops audio before calling finish; final text persists; and permission/inference failures enter `failed` without leaving recording active.
 
-- [ ] **Step 2: Implement CatcherClient**
+- [x] **Step 2: Implement CatcherClient**
 
   Wrap the C handle in a serial actor. Convert model/language paths with `withCString`, copy `catcher_text` immediately into Swift `String`, and destroy the handle in `deinit` through a small owned reference type.
 
-- [ ] **Step 3: Implement AudioRecorder**
+- [x] **Step 3: Implement AudioRecorder**
 
   Request AVAudioApplication microphone permission, install an AVAudioEngine tap, convert input to `AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)`, and copy channel data before leaving the tap callback.
 
-- [ ] **Step 4: Implement controller and UI**
+- [x] **Step 4: Implement controller and UI**
 
   Create a single-window SwiftUI app. Show product name, state label, download progress, a scrollable selectable transcript, error/retry affordance, and a large accessible toggle whose label is `Start Recording` or `Stop Recording`. Disable it before `ready`; use color and text together rather than color alone.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
   Run: `swift test --package-path apps/tippi`
 
