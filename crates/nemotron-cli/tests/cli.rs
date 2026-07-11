@@ -2,7 +2,7 @@ use std::process::Command;
 
 #[test]
 fn help_exposes_streaming_transcription_arguments() {
-    let output = Command::new(env!("CARGO_BIN_EXE_nemotron-mlx"))
+    let output = Command::new(env!("CARGO_BIN_EXE_catcher"))
         .args(["transcribe", "--help"])
         .output()
         .expect("run CLI help");
@@ -27,7 +27,7 @@ fn transcribes_the_reference_wav_end_to_end() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/hello-streaming.wav"
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_nemotron-mlx"))
+    let output = Command::new(env!("CARGO_BIN_EXE_catcher"))
         .args([
             "transcribe",
             "--model",

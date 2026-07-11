@@ -7,11 +7,7 @@ use clap::{Parser, Subcommand};
 use nemotron_mlx::{model::StreamingTranscriber, tokenizer::Tokenizer, weights::Artifact};
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "nemotron-mlx",
-    version,
-    about = "Nemotron 3.5 ASR on Apple MLX"
-)]
+#[command(name = "catcher", version, about = "Nemotron 3.5 ASR on Apple MLX")]
 struct Arguments {
     #[command(subcommand)]
     command: Command,
@@ -46,7 +42,7 @@ fn main() -> ExitCode {
     match run(Arguments::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("nemotron-mlx: {error}");
+            eprintln!("catcher: {error}");
             ExitCode::FAILURE
         }
     }

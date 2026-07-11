@@ -1,64 +1,94 @@
-# nemotron-mlx
+# Catcher + Tippi
 
-An end-to-end Rust host runtime for
+**Catcher** is an end-to-end Rust speech-to-text runtime for
 [`nvidia/nemotron-3.5-asr-streaming-0.6b`](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b),
-using MLX-C/Metal on Apple Silicon.
+using MLX-C/Metal on Apple Silicon. **Tippi** is its native macOS SwiftUI app:
+turn recording on, speak, watch partial text appear, and turn recording off to
+flush the final transcript.
 
-The runtime performs WAV decoding, log-mel extraction, cache-aware 24-layer
-FastConformer inference, language prompting, greedy RNNT decoding, and tokenizer
-decoding without Python, PyTorch, NeMo, or ONNX Runtime. Matrix and pointwise
-weights use affine weight-only INT8; numerically sensitive convolution, norm,
-bias, and scale tensors remain FP16/FP32 as declared by the artifact manifest.
+Catcher performs log-mel extraction, cache-aware 24-layer FastConformer
+inference, language prompting, greedy RNNT decoding, and tokenizer decoding
+without Python, PyTorch, NeMo, or ONNX Runtime. Rust owns the model topology,
+caches, audio frontend, control flow, CLI, and C ABI; MLX-C/Metal executes the
+accelerated tensor kernels.
 
 ## Requirements
 
-- arm64 Apple Silicon Mac;
-- Xcode Command Line Tools;
+- arm64 Apple Silicon Mac running macOS 15 or newer;
+- Xcode 26 or newer and its Command Line Tools;
 - Xcode Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`);
 - Rust 1.85 or newer.
 
-`mlx-rs` is used as a narrow Rust wrapper over MLX-C. MLX itself contains C++
-and Metal kernels, but the inference topology, cache control, audio frontend,
-RNNT loop, and CLI are Rust.
+## Download the public INT8 model
 
-## Build
+The public Catcher artifact is approximately 629 MiB and retains the upstream
+OpenMDW-1.1 license and NVIDIA origin notices:
 
 ```sh
-cargo build --workspace --release
+hf download wcamon/catcher-asr-mlx-int8 \
+  --local-dir catcher-asr-mlx-int8
 ```
 
-## Convert the official checkpoint
+Tippi performs this download automatically on first launch, verifies pinned
+SHA-256 hashes, and installs the model atomically under its sandboxed Application
+Support directory. The app contains no Hugging Face token.
 
-Download the Hugging Face repository, retain its OpenMDW-1.1 license and
-notices, then convert `model.safetensors`:
+## Build and run Tippi
 
 ```sh
-target/release/nemotron-convert \
-  --source /path/to/model.safetensors \
-  --output /path/to/nemotron-mlx-int8 \
-  --group-size 128
+apps/tippi/scripts/build-app.sh
+open apps/tippi/build/Tippi.app
 ```
 
-The converter accepts group sizes 32, 64, and 128. Group 128 is the default and
-smallest supported artifact. Recognized tokenizer, configuration, README, and
-license companion files are copied from the checkpoint directory into the
-artifact. The tested group-128 artifact is 629 MiB on disk (659.6 MB decimal).
+The build script compiles the release Catcher dylib, builds the Swift package,
+creates the standard `.app` bundle, embeds the dylib, normalizes `@rpath`, adds
+microphone/network sandbox entitlements, ad-hoc signs nested code and the app,
+then verifies the complete bundle.
 
-## Transcribe
+Inside Tippi:
 
-The first CLI release accepts mono 16 kHz PCM or float WAV files:
+1. Wait for the first-run model download and model-load status to reach Ready.
+2. Select **Start Recording** and grant microphone permission when macOS asks.
+3. Speak while partial text updates in the transcript area.
+4. Select **Stop Recording** to flush and retain the final text.
+
+If microphone access is denied, use Tippi's **Microphone Settings** action or
+open System Settings → Privacy & Security → Microphone.
+
+## Catcher CLI
 
 ```sh
-target/release/nemotron-mlx transcribe \
-  --model /path/to/nemotron-mlx-int8 \
-  --audio /path/to/audio.wav \
+cargo build -p nemotron-cli --release
+
+target/release/catcher transcribe \
+  --model catcher-asr-mlx-int8 \
+  --audio speech.wav \
   --language en-US \
   --lookahead 3
 ```
 
-Use `--json` for a final JSON object containing text, token IDs, language, and
-lookahead. Supported checkpoint lookahead values are `0`, `3`, `6`, and `13`.
-The default `3` corresponds to 320 ms algorithmic latency.
+The CLI accepts mono 16 kHz PCM or float WAV. Tippi accepts the Mac's native
+microphone format and converts it to mono Float32 16 kHz with AVAudioConverter.
+Supported Catcher lookahead values are `0`, `3`, `6`, and `13`; default `3`
+corresponds to 320 ms algorithmic latency.
+
+## Catcher C ABI
+
+The canonical header is `crates/catcher-ffi/include/catcher.h`. A loaded handle
+can be reused across utterances:
+
+```c
+catcher_handle_t *handle = catcher_create(model_path, "auto", 3);
+catcher_start(handle);
+catcher_push_audio(handle, samples, sample_count);
+catcher_finish(handle);
+const char *text = catcher_text(handle);
+catcher_destroy(handle);
+```
+
+Calls are serialized per handle. Returned UTF-8 text is owned by Catcher and is
+valid until the next mutating call. Every exported function validates pointers,
+catches Rust panics, and never unwinds across C/Swift.
 
 ## Validation
 
@@ -66,38 +96,34 @@ The default `3` corresponds to 320 ms algorithmic latency.
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+swift test --package-path apps/tippi
+apps/tippi/scripts/build-app.sh
 
-NEMOTRON_MLX_ARTIFACT=/path/to/nemotron-mlx-int8 \
-  cargo test -p nemotron-mlx --test real_checkpoint -- \
-  --ignored --test-threads=1
-NEMOTRON_MLX_ARTIFACT=/path/to/nemotron-mlx-int8 \
-  cargo test -p nemotron-cli --test cli -- --ignored --test-threads=1
+apps/tippi/scripts/run-reference.sh /path/to/catcher-asr-mlx-int8
 ```
 
-The gated end-to-end fixture compares Rust streaming inference against the
-official Transformers implementation and requires identical non-blank token
-IDs. The reference WAV decodes to:
+The real-model tests push the 4.151875-second reference WAV through one-shot,
+irregular incremental Rust blocks, and the C ABI. All paths require the same
+non-blank RNNT token IDs as the official Transformers reference and decode to:
 
 > Hello, this is a streaming speech recognition test
 
-On the development Apple Silicon Mac, the stripped 10.3 MiB CLI transcribed the
-4.151875-second fixture in 2.64 seconds (real-time factor 0.64) with 702.5 MiB
-maximum resident memory. These are single-run local measurements, not a general
-hardware guarantee. The stripped converter is 9.6 MiB.
+The earlier CLI release measurement was 2.64 seconds (real-time factor 0.64)
+with 702.5 MiB maximum resident memory on the development Apple Silicon Mac.
+Measurements are hardware- and workload-specific.
 
 ## Current limitations
 
 - Apple Silicon macOS only;
-- mono 16 kHz WAV input only; no resampling or microphone capture yet;
 - greedy RNNT search with at most ten emitted symbols per encoder frame;
-- one complete utterance per `StreamingTranscriber` session;
-- final output only; incremental partial-result callbacks are not exposed yet;
-- model weights are external and remain governed by NVIDIA's OpenMDW-1.1 terms.
+- one active utterance per Catcher handle;
+- no global shortcut, text injection, transcript history, App Store signing, or
+  notarization in the first Tippi release;
+- the INT8 artifact has exact-token reference coverage but not yet a complete
+  multilingual WER evaluation.
 
-Important checkpoint constants: model blank ID `13087`; prompt IDs `zh-CN=4`,
-`zh-TW=5`, and `auto=101`. The tokenizer's added `<blank>` entry is 13088,
-outside the model logits, so the runtime deliberately follows `config.json` and
-filters model blank ID 13087.
+Model weights remain governed by OpenMDW-1.1. Catcher and Tippi are independent
+community software and are not affiliated with or endorsed by NVIDIA.
 
-See [the implementation plan](docs/superpowers/plans/2026-07-10-nemotron-mlx.md)
-and [design notes](docs/plans/2026-07-10-nemotron-mlx-design.md).
+See the [Catcher/Tippi design](docs/plans/2026-07-11-catcher-tippi-design.md) and
+[implementation plan](docs/superpowers/plans/2026-07-11-catcher-tippi.md).

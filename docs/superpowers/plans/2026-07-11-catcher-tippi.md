@@ -193,15 +193,15 @@
 - Produces: `apps/tippi/build/Tippi.app` containing the Swift executable and `Contents/Frameworks/libcatcher_ffi.dylib`.
 - Produces: an ad-hoc signed local development app with `NSMicrophoneUsageDescription` and audio-input entitlement.
 
-- [ ] **Step 1: Write a failing bundle verification script**
+- [x] **Step 1: Write a failing bundle verification script**
 
   The script requires `Tippi.app/Contents/MacOS/Tippi`, the embedded Catcher dylib, Info.plist microphone text, `@executable_path/../Frameworks` resolution, valid ad-hoc signing, and an arm64 Mach-O executable. Run it before the build script exists and confirm failure.
 
-- [ ] **Step 2: Implement the build script**
+- [x] **Step 2: Implement the build script**
 
   Build `catcher-ffi --release`, build the Swift package in release mode, assemble the standard macOS bundle directories, copy the dylib, normalize its install name to `@rpath/libcatcher_ffi.dylib`, copy Info.plist, and sign nested code before signing the app.
 
-- [ ] **Step 3: Run automated verification**
+- [x] **Step 3: Run automated verification**
 
   Run: `cargo fmt --check`
 
@@ -215,14 +215,14 @@
 
   Run: `codesign --verify --deep --strict apps/tippi/build/Tippi.app`
 
-- [ ] **Step 4: Run real-model integration**
+- [x] **Step 4: Run real-model integration**
 
   Link or download the public artifact, feed `tests/fixtures/hello-streaming.wav` through the C ABI in irregular callback-sized blocks, and require the exact final text `Hello, this is a streaming speech recognition test`.
 
-- [ ] **Step 5: Launch and document**
+- [ ] **Step 5: Launch and document (launch, download, sandbox, and MLX load verified; recording-toggle visual check remains manual because Computer Use was unavailable)**
 
   Launch with `open apps/tippi/build/Tippi.app`, verify first-run download UI and recording toggle, then document model storage, microphone permission recovery, build/run commands, limitations, and the public artifact URL.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   Commit: `feat: ship the Tippi macOS app`
