@@ -5,10 +5,14 @@ mod encoder;
 mod layers;
 mod prompt;
 mod rnnt;
+mod stream;
 
 pub use cache::{AttentionKv, AttentionKvCache, CausalConv1dCache, CausalConv2dCache};
 pub use encoder::{
-    Conv2dSubsampling, EncoderConfig, StreamingChunkPlan, SubsamplingCache, chunked_attention_mask,
+    Conv2dSubsampling, EncoderConfig, EncoderLayerCache, EncoderTrace, FastConformerLayer,
+    RelativePositionAttention, StreamingChunkPlan, StreamingEncoder, StreamingEncoderCache,
+    SubsamplingCache, channel_frequency_flatten, chunked_attention_mask,
+    relative_position_encoding, relative_shift,
 };
 pub use layers::{
     DepthwiseConv1d, Fp16Conv2d, LayerNorm, PointwiseConv1d, QuantizedLinear, Tensor3, Tensor4,
@@ -18,6 +22,7 @@ pub use rnnt::{
     GreedyRnnt, JointNetwork, LstmCell, LstmState, PredictionNetwork, PredictionState,
     QuantizedEmbedding, StreamingRnntDecoder,
 };
+pub use stream::StreamingTranscriber;
 
 /// Errors produced by model layers and cache management.
 #[derive(Debug, thiserror::Error)]

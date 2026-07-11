@@ -18,4 +18,5 @@ thiserror = "2"
 [dev-dependencies]
 approx = "0.5"
 bytemuck = "1"
+hound = "3"
 safetensors = "0.6"

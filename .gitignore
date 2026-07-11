@@ -1,8 +1,12 @@
-.DS_Store
+/.DS_Store
 /target/
 /models/
 /artifacts/
 *.wav
 *.safetensors
 *.nemo
+!tests/fixtures/*.wav
 
+/.model-source/
+/.model-artifact/
+/.model-artifact-g64/

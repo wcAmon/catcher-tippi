@@ -13,6 +13,9 @@ const MANIFEST_FILE: &str = "manifest.json";
 /// Errors produced while converting or loading an MLX artifact.
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
+    /// Quantization configuration is incompatible with the checkpoint.
+    #[error("invalid quantization configuration: {0}")]
+    InvalidQuantization(String),
     /// A filesystem operation failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -104,8 +107,51 @@ pub struct Artifact {
 
 /// Converts the complete published Nemotron 3.5 checkpoint.
 pub fn convert_model(source: impl AsRef<Path>, output: impl AsRef<Path>) -> ArtifactResult<()> {
-    let manifest = ModelManifest::nemotron_3_5();
-    convert_tensors(source, output, manifest.model_id(), manifest.tensors())
+    convert_model_with_group_size(source, output, 128)
+}
+
+/// Converts the complete checkpoint with the selected affine INT8 group size.
+pub fn convert_model_with_group_size(
+    source: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+    group_size: usize,
+) -> ArtifactResult<()> {
+    let source = source.as_ref();
+    let output = output.as_ref();
+    let manifest = ModelManifest::nemotron_3_5_with_group_size(group_size)
+        .map_err(|error| ArtifactError::InvalidQuantization(error.to_string()))?;
+    convert_tensors(source, output, manifest.model_id(), manifest.tensors())?;
+    copy_model_companion_files(source, output)
+}
+
+/// Copies only tokenizer/configuration and license-notice files beside the source checkpoint.
+pub fn copy_model_companion_files(
+    source_model: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+) -> ArtifactResult<()> {
+    let source_dir = source_model
+        .as_ref()
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let output = output.as_ref();
+    for name in [
+        "config.json",
+        "processor_config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "README.md",
+        "LICENSE",
+        "LICENSE.md",
+        "NOTICE",
+        "NOTICE.md",
+    ] {
+        let source = source_dir.join(name);
+        if source.is_file() {
+            fs::copy(source, output.join(name))?;
+        }
+    }
+    Ok(())
 }
 
 impl Artifact {

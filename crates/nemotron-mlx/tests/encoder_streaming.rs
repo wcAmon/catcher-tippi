@@ -1,8 +1,9 @@
 use approx::assert_abs_diff_eq;
 use nemotron_mlx::model::{
     AttentionKvCache, CausalConv2dCache, Conv2dSubsampling, EncoderConfig, Fp16Conv2d,
-    LanguagePrompt, PromptProjector, QuantizedLinear, StreamingChunkPlan, SubsamplingCache,
-    Tensor3, Tensor4, chunked_attention_mask,
+    LanguagePrompt, PromptProjector, QuantizedLinear, RelativePositionAttention,
+    StreamingChunkPlan, SubsamplingCache, Tensor3, Tensor4, channel_frequency_flatten,
+    chunked_attention_mask, relative_position_encoding, relative_shift,
 };
 
 static MLX_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -195,6 +196,12 @@ fn factor_eight_subsampling_matches_one_shot_across_chunk_boundary() {
     assert_eq!(offline.shape, [1, 3, channels]);
     assert_eq!(first.shape, [1, 2, channels]);
     assert_eq!(second.shape, [1, 1, channels]);
+    assert!(
+        first.values[channels..]
+            .iter()
+            .all(|value| value.abs() < 1.0e-6),
+        "the extra ceil frame in the first chunk must be masked"
+    );
     let mut streamed = first.values;
     streamed.extend_from_slice(&second.values);
     for (actual, expected) in streamed.iter().zip(offline.values) {
@@ -300,4 +307,108 @@ fn chunk_mask_allows_current_lookahead_and_bounded_previous_chunks() {
     assert!(!allowed(8, 3));
     assert!(allowed(8, 4));
     assert!(allowed(8, 11));
+}
+
+#[test]
+fn relative_positions_interleave_sine_and_cosine_in_transformers_order() {
+    let positions = relative_position_encoding(4, 2).unwrap();
+    let expected = [
+        1.0_f32.sin(),
+        1.0_f32.cos(),
+        0.01_f32.sin(),
+        0.01_f32.cos(),
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        -1.0_f32.sin(),
+        1.0_f32.cos(),
+        -0.01_f32.sin(),
+        0.01_f32.cos(),
+    ];
+    assert_eq!(positions.shape, [1, 3, 4]);
+    for (actual, expected) in positions.values.iter().zip(expected) {
+        assert_abs_diff_eq!(*actual, expected, epsilon = 1.0e-6);
+    }
+}
+
+#[test]
+fn relative_shift_matches_transformers_pad_view_slice_sequence() {
+    let scores = (0..10).map(|value| value as f32).collect::<Vec<_>>();
+    let shifted = relative_shift(&scores, 2, 5).unwrap();
+    assert_eq!(
+        shifted,
+        vec![1.0, 2.0, 3.0, 4.0, 0.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+    );
+}
+
+#[test]
+fn relative_attention_averages_values_when_content_and_position_scores_are_zero() {
+    let _guard = MLX_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let hidden = 128;
+    let constant = vec![0.01; hidden * hidden];
+    let attention = RelativePositionAttention::from_f32(
+        &constant,
+        &constant,
+        &identity(hidden),
+        &identity(hidden),
+        &identity(hidden),
+        &[0.0; 128],
+        &[0.0; 128],
+        hidden,
+        2,
+        128,
+    )
+    .unwrap();
+    let mut cache = AttentionKvCache::new(2, 64, 3);
+    let first = attention
+        .forward_streaming(
+            &Tensor3 {
+                shape: [1, 2, hidden],
+                values: zero_sum_frames(hidden, &[1.0, 2.0]),
+            },
+            &mut cache,
+        )
+        .unwrap();
+    assert_eq!(first.shape, [1, 2, hidden]);
+    for frame in first.values.chunks_exact(hidden) {
+        assert_abs_diff_eq!(frame[0], 1.5, epsilon = 0.03);
+        assert_abs_diff_eq!(frame[hidden - 1], -1.5, epsilon = 0.03);
+    }
+
+    let second = attention
+        .forward_streaming(
+            &Tensor3 {
+                shape: [1, 1, hidden],
+                values: zero_sum_frames(hidden, &[3.0]),
+            },
+            &mut cache,
+        )
+        .unwrap();
+    assert_eq!(cache.frames(), 3);
+    assert_abs_diff_eq!(second.values[0], 2.0, epsilon = 0.03);
+    assert_abs_diff_eq!(second.values[hidden - 1], -2.0, epsilon = 0.03);
+}
+
+fn zero_sum_frames(hidden: usize, magnitudes: &[f32]) -> Vec<f32> {
+    let mut output = Vec::with_capacity(hidden * magnitudes.len());
+    for magnitude in magnitudes {
+        output.extend(std::iter::repeat_n(*magnitude, hidden / 2));
+        output.extend(std::iter::repeat_n(-*magnitude, hidden / 2));
+    }
+    output
+}
+
+#[test]
+fn subsampling_flattens_channels_before_frequency_for_pytorch_linear() {
+    let input = Tensor4 {
+        shape: [1, 1, 2, 3],
+        values: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    };
+    assert_eq!(
+        channel_frequency_flatten(&input).unwrap(),
+        vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
+    );
 }

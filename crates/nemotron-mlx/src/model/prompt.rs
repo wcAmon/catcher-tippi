@@ -42,6 +42,35 @@ pub struct PromptProjector {
 }
 
 impl PromptProjector {
+    pub fn from_artifact(artifact: &crate::weights::Artifact) -> ModelResult<Self> {
+        let linear1 = QuantizedLinear::from_artifact(
+            artifact,
+            "prompt_projector.linear_1.weight",
+            Some("prompt_projector.linear_1.bias"),
+        )?;
+        let linear2 = QuantizedLinear::from_artifact(
+            artifact,
+            "prompt_projector.linear_2.weight",
+            Some("prompt_projector.linear_2.bias"),
+        )?;
+        let hidden_size = linear2.output_dims();
+        let num_prompts = linear1
+            .input_dims()
+            .checked_sub(hidden_size)
+            .ok_or_else(|| {
+                ModelError::InvalidShape(
+                    "prompt projector input must include hidden state and prompt one-hot"
+                        .to_string(),
+                )
+            })?;
+        Ok(Self {
+            hidden_size,
+            num_prompts,
+            linear1,
+            linear2,
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn from_f32(
         weight1: &[f32],

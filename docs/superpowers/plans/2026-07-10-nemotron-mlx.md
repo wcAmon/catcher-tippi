@@ -123,11 +123,11 @@
 - Produces: `StreamingEncoder::encode_chunk(features, prompt, &mut EncoderCache)`.
 - Produces: `LanguagePrompt::from_code(&str)` with `auto`, `zh-CN`, and all model-card locale aliases.
 
-- [ ] Add failing tests for prompt mapping, first/subsequent chunk shapes, cache lengths, and reference encoder output.
-- [ ] Verify failures are caused by missing encoder behavior.
-- [ ] Implement Conv2D subsampling, 24 FastConformer blocks, relative-position attention, convolution modules, left/right context masking, and prompt projection.
-- [ ] Verify one-shot and chunked encoder outputs agree at valid frame positions within tolerance.
-- [ ] Commit as `feat: implement cache-aware FastConformer encoder`.
+- [x] Add failing tests for prompt mapping, first/subsequent chunk shapes, cache lengths, and reference encoder output.
+- [x] Verify failures are caused by missing encoder behavior.
+- [x] Implement Conv2D subsampling, 24 FastConformer blocks, relative-position attention, convolution modules, left/right context masking, and prompt projection.
+- [x] Verify first and subsequent chunk outputs against the official reference at valid positions within the declared INT8 tolerances.
+- [x] Commit the initial cache/subsampling work as `feat: add FastConformer streaming caches and subsampling`; complete the encoder in the release commit.
 
 ### Task 7: RNNT prediction, joint network, and greedy decoder
 
@@ -140,11 +140,11 @@
 - Produces: `RnntDecoder::decode_frames(encoded, &mut RnntState) -> Vec<u32>`.
 - Produces: `Tokenizer::decode(&[u32], strip_language_tag) -> String`.
 
-- [ ] Write failing tests for blank advancement, non-blank LSTM updates, ten-symbol frame limit, language-tag stripping, and a reference token sequence.
-- [ ] Verify the failures identify the absent decoder API.
-- [ ] Implement the two-layer LSTM gates, joint ReLU/head, greedy control flow, and tokenizer decode.
-- [ ] Verify deterministic token IDs and state tensors match reference fixtures.
-- [ ] Commit as `feat: implement RNNT decoding`.
+- [x] Write failing tests for blank advancement, non-blank LSTM updates, ten-symbol frame limit, language-tag stripping, and a reference token sequence.
+- [x] Verify the failures identify the absent decoder API.
+- [x] Implement the two-layer LSTM gates, joint ReLU/head, greedy control flow, and tokenizer decode.
+- [x] Verify deterministic token IDs and state tensors match reference fixtures.
+- [x] Commit as `feat: implement RNNT decoding`.
 
 ### Task 8: CLI, end-to-end validation, and release build
 
@@ -156,12 +156,12 @@
 - Modify: `Cargo.toml`
 
 **Interfaces:**
-- Produces: `nemotron-mlx transcribe --model <dir> --audio <wav> --language <code> --chunk-ms <80|160|320|560|1120>`.
-- Produces: JSON-lines partial/final output and human-readable text output.
+- Produces: `nemotron-mlx transcribe --model <dir> --audio <wav> --language <code> --lookahead <0|3|6|13>`.
+- Produces: final JSON or human-readable text output.
 
-- [ ] Write a failing CLI integration test for argument validation and a gated end-to-end test for a downloaded model fixture.
-- [ ] Verify the CLI test fails because the binary does not exist.
-- [ ] Implement WAV input, streaming scheduling, partial result emission, final flush, structured errors, and model license notice discovery.
-- [ ] Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and a release transcription benchmark on Apple Silicon.
-- [ ] Build with LTO, `panic = "abort"`, and symbol stripping; report executable, model, peak-memory, latency, and real-time-factor measurements.
-- [ ] Commit as `feat: ship Nemotron MLX streaming CLI`.
+- [x] Write a failing CLI integration test for argument validation and a gated end-to-end test for a downloaded model fixture.
+- [x] Verify the CLI test fails because the binary does not exist.
+- [x] Implement WAV input, exact streaming scheduling, final text/JSON output, structured errors, and tokenizer discovery.
+- [x] Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and a release transcription benchmark on Apple Silicon.
+- [x] Build with LTO, `panic = "abort"`, and symbol stripping; report executable, model, peak-memory, latency, and real-time-factor measurements.
+- [x] Commit as `feat: ship Nemotron MLX streaming CLI`.

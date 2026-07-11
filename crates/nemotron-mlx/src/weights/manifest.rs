@@ -65,6 +65,9 @@ pub struct TensorSpec {
 /// Errors found while validating a source checkpoint.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ManifestError {
+    /// MLX affine quantization only supports the selected deployment group sizes.
+    #[error("unsupported INT8 group size {0}; expected 32, 64, or 128")]
+    UnsupportedGroupSize(usize),
     /// A required tensor is absent.
     #[error("missing tensor {0}")]
     MissingTensor(String),
@@ -197,6 +200,23 @@ impl ModelManifest {
             vocab_size: 13_088,
             tensors,
         }
+    }
+
+    /// Builds the published layout with a selectable MLX affine INT8 group size.
+    pub fn nemotron_3_5_with_group_size(group_size: usize) -> Result<Self, ManifestError> {
+        if ![32, 64, 128].contains(&group_size) {
+            return Err(ManifestError::UnsupportedGroupSize(group_size));
+        }
+        let mut manifest = Self::nemotron_3_5();
+        for tensor in &mut manifest.tensors {
+            if matches!(tensor.storage, Storage::Int8Affine { .. }) {
+                if tensor.artifact_shape[1] % group_size != 0 {
+                    return Err(ManifestError::UnsupportedGroupSize(group_size));
+                }
+                tensor.storage = Storage::Int8Affine { group_size };
+            }
+        }
+        Ok(manifest)
     }
 
     /// Hugging Face repository identifier.

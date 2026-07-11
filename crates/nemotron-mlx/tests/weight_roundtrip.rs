@@ -5,6 +5,7 @@ use bytemuck::cast_slice;
 use nemotron_mlx::model::QuantizedLinear;
 use nemotron_mlx::weights::{
     Artifact, DType, Storage, TensorSpec, TensorTransform, convert_model, convert_tensors,
+    copy_model_companion_files,
 };
 use safetensors::tensor::{Dtype as SafeDType, TensorView, serialize_to_file};
 
@@ -149,4 +150,29 @@ fn full_model_conversion_requires_the_published_checkpoint_layout() {
             .contains("missing source tensor encoder.layers.0.conv.depthwise_conv.weight")
     );
     assert!(!artifact_path.exists());
+}
+
+#[test]
+fn copies_only_runtime_metadata_and_license_companions() {
+    let temp = tempfile::tempdir().unwrap();
+    let source_dir = temp.path().join("source");
+    let output = temp.path().join("artifact");
+    std::fs::create_dir_all(&source_dir).unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+    let model = source_dir.join("model.safetensors");
+    std::fs::write(&model, []).unwrap();
+    std::fs::write(source_dir.join("config.json"), "config").unwrap();
+    std::fs::write(source_dir.join("tokenizer.json"), "tokenizer").unwrap();
+    std::fs::write(source_dir.join("README.md"), "license notice").unwrap();
+    std::fs::write(source_dir.join("secret.txt"), "do not copy").unwrap();
+
+    copy_model_companion_files(&model, &output).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(output.join("config.json")).unwrap(),
+        "config"
+    );
+    assert!(output.join("tokenizer.json").is_file());
+    assert!(output.join("README.md").is_file());
+    assert!(!output.join("secret.txt").exists());
 }

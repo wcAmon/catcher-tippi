@@ -35,6 +35,45 @@ pub struct Fp16Conv2d {
 }
 
 impl Fp16Conv2d {
+    pub(crate) fn streaming_output_length(&self, input_frames: usize) -> usize {
+        let left_pad = self.kernel_size - self.stride;
+        if input_frames + left_pad < self.kernel_size {
+            0
+        } else {
+            (input_frames + left_pad - self.kernel_size) / self.stride + 1
+        }
+    }
+
+    pub fn from_artifact(
+        artifact: &Artifact,
+        weight_name: &str,
+        bias_name: &str,
+        stride: usize,
+        groups: usize,
+    ) -> ModelResult<Self> {
+        let shape = artifact
+            .tensor_info(weight_name)
+            .ok_or_else(|| {
+                crate::weights::ArtifactError::MissingArtifactTensor(weight_name.to_string())
+            })?
+            .shape
+            .clone();
+        if shape.len() != 4 || shape[2] != shape[3] {
+            return Err(ModelError::InvalidShape(format!(
+                "Conv2D artifact {weight_name} must have OIHW shape"
+            )));
+        }
+        Self::from_f32(
+            &artifact.f16_to_f32(weight_name)?,
+            &artifact.f16_to_f32(bias_name)?,
+            shape[0],
+            shape[1] * groups,
+            shape[2],
+            stride,
+            groups,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn from_f32(
         pytorch_weight: &[f32],
@@ -322,6 +361,36 @@ pub struct DepthwiseConv1d {
 }
 
 impl DepthwiseConv1d {
+    pub fn from_artifact(
+        artifact: &Artifact,
+        weight_name: &str,
+        bias_name: Option<&str>,
+    ) -> ModelResult<Self> {
+        let shape = artifact
+            .tensor_info(weight_name)
+            .ok_or_else(|| {
+                crate::weights::ArtifactError::MissingArtifactTensor(weight_name.to_string())
+            })?
+            .shape
+            .clone();
+        if shape.len() != 3 || shape[1] != 1 {
+            return Err(ModelError::InvalidShape(format!(
+                "depthwise artifact {weight_name} must have [channels,1,kernel] shape"
+            )));
+        }
+        let bias = if let Some(name) = bias_name {
+            artifact.f16_to_f32(name)?
+        } else {
+            vec![0.0; shape[0]]
+        };
+        Self::from_f32(
+            &artifact.f16_to_f32(weight_name)?,
+            shape[0],
+            shape[2],
+            &bias,
+        )
+    }
+
     /// Creates weights from `[channels, kernel_size]` cross-correlation kernels.
     pub fn from_f32(
         weight: &[f32],
@@ -396,6 +465,14 @@ pub struct LayerNorm {
 }
 
 impl LayerNorm {
+    pub fn from_artifact(artifact: &Artifact, prefix: &str, epsilon: f32) -> ModelResult<Self> {
+        Self::from_f32(
+            &artifact.f16_to_f32(&format!("{prefix}.weight"))?,
+            &artifact.f16_to_f32(&format!("{prefix}.bias"))?,
+            epsilon,
+        )
+    }
+
     /// Creates a layer normalization from F32 affine parameters.
     pub fn from_f32(weight: &[f32], bias: &[f32], epsilon: f32) -> ModelResult<Self> {
         if weight.is_empty() || weight.len() != bias.len() {

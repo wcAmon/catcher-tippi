@@ -1,0 +1,16 @@
+[package]
+name = "nemotron-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "nemotron-mlx"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+hound = "3"
+nemotron-mlx = { path = "../nemotron-mlx" }
+serde_json = "1"

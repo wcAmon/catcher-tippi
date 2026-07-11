@@ -69,6 +69,21 @@ fn manifest_assigns_int8_only_to_matrix_compatible_weights() {
 }
 
 #[test]
+fn manifest_can_select_group_64_for_more_accurate_int8() {
+    let manifest = ModelManifest::nemotron_3_5_with_group_size(64).unwrap();
+    assert!(
+        manifest
+            .tensors()
+            .iter()
+            .all(|tensor| match tensor.storage {
+                Storage::Int8Affine { group_size } => group_size == 64,
+                _ => true,
+            })
+    );
+    assert!(ModelManifest::nemotron_3_5_with_group_size(96).is_err());
+}
+
+#[test]
 fn manifest_rejects_a_missing_tensor() {
     let manifest = ModelManifest::nemotron_3_5();
     let mut index = valid_index(&manifest);
