@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/nemotron-cli", "crates/nemotron-convert", "crates/nemotron-mlx"]
+members = ["crates/catcher-ffi", "crates/nemotron-cli", "crates/nemotron-convert", "crates/nemotron-mlx"]
 resolver = "2"
 
 [workspace.package]

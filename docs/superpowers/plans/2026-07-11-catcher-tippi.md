@@ -75,25 +75,25 @@
 - Produces C functions `catcher_create`, `catcher_start`, `catcher_push_audio`, `catcher_finish`, `catcher_text`, `catcher_last_error`, and `catcher_destroy`.
 - Produces status codes `CATCHER_OK=0`, `CATCHER_NO_UPDATE=1`, `CATCHER_INVALID_ARGUMENT=-1`, `CATCHER_INVALID_STATE=-2`, and `CATCHER_RUNTIME_ERROR=-3`.
 
-- [ ] **Step 1: Write a failing ABI lifecycle test**
+- [x] **Step 1: Write a failing ABI lifecycle test**
 
   The Rust integration test calls the exported `extern "C"` functions exactly as Swift will: null create arguments fail, a valid fake/session harness starts, zero-length audio is accepted, text pointers contain valid NUL-terminated UTF-8, finish locks the session, restart clears text, and destroy accepts null.
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
   Run: `cargo test -p catcher-ffi --test ffi_lifecycle`
 
   Expected: Cargo reports that package `catcher-ffi` does not exist.
 
-- [ ] **Step 3: Implement the crate and header**
+- [x] **Step 3: Implement the crate and header**
 
   Build `crate-type = ["cdylib", "staticlib", "rlib"]`. Store `StreamingTranscriber`, `Tokenizer`, cumulative token IDs, current `CString`, and last-error `CString` in the handle. Wrap every exported body in `catch_unwind(AssertUnwindSafe(...))`; validate pointer/count pairs before slice construction; never expose a temporary string.
 
-- [ ] **Step 4: Add real C-link smoke coverage**
+- [x] **Step 4: Add real C-link smoke coverage**
 
   Compile a tiny C program against `include/catcher.h` and the release dylib, call `catcher_destroy(NULL)`, and verify process exit zero. Inspect `otool -L` to require only Apple/system dynamic dependencies.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
   Run: `cargo test -p catcher-ffi`
 
