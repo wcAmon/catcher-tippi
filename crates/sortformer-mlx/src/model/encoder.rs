@@ -70,8 +70,37 @@ impl Encoder {
     }
 
     /// Encodes unnormalized log-mel frames into `[1, frames/8, encoder_dim]`.
+    ///
+    /// Exactly `self.forward_embedded(&self.pre_encode(mel_frames)?)`.
     pub fn forward(&self, mel_frames: &[Vec<f32>]) -> ModelResult<Tensor3> {
-        let (hidden, frames) = self.run(mel_frames, None)?;
+        let embedded = self.pre_encode(mel_frames)?;
+        self.forward_embedded(&embedded)
+    }
+
+    /// dw-striding conv subsampling only: mel `[T_mel][mel_bins]` ->
+    /// `[1, T_mel/8, encoder_dim]`, **UNSCALED**.
+    ///
+    /// Mirrors NeMo `bypass_pre_encode=False`'s `self.pre_encode(...)` step. The
+    /// `sqrt(d_model)` xscaling lives in `pos_enc` (see `forward_embedded`), so
+    /// streaming (Task 7) can cache these raw embeddings and scale the whole
+    /// `[spkcache|fifo|chunk]` sequence each step.
+    pub fn pre_encode(&self, mel_frames: &[Vec<f32>]) -> ModelResult<Tensor3> {
+        if mel_frames.is_empty() || mel_frames.iter().any(|frame| frame.len() != self.mel_bins) {
+            return Err(ModelError::InvalidShape(format!(
+                "encoder input must be non-empty [time][{}] mel frames",
+                self.mel_bins
+            )));
+        }
+        self.subsampling.forward(mel_frames)
+    }
+
+    /// Runs the 17 Conformer blocks over already-pre-encoded embeddings
+    /// (NeMo `bypass_pre_encode=True`).
+    ///
+    /// Applies the `sqrt(d_model)` xscaling to the whole input first (NeMo does
+    /// this inside `pos_enc`), then relative-position encoding and every block.
+    pub fn forward_embedded(&self, embedded: &Tensor3) -> ModelResult<Tensor3> {
+        let (hidden, frames) = self.run_embedded(embedded, None)?;
         Ok(Tensor3 {
             shape: [1, frames, self.hidden_size],
             values: hidden,
@@ -83,34 +112,30 @@ impl Encoder {
     /// Phase-2 surface: exists for parity diagnostics against NeMo block
     /// outputs, not for production diarization inference.
     pub fn forward_trace(&self, mel_frames: &[Vec<f32>]) -> ModelResult<EncoderTrace> {
+        let embedded = self.pre_encode(mel_frames)?;
         let mut trace = EncoderTrace {
-            subsampling: Tensor3 {
-                shape: [1, 0, self.hidden_size],
-                values: Vec::new(),
-            },
+            subsampling: embedded.clone(),
             layers: Vec::with_capacity(self.layers.len()),
         };
-        self.run(mel_frames, Some(&mut trace))?;
+        self.run_embedded(&embedded, Some(&mut trace))?;
         Ok(trace)
     }
 
-    fn run(
+    /// Shared block-stack body: scale the pre-encoded input, add relative
+    /// positions, and run every Conformer block, optionally tracing each.
+    fn run_embedded(
         &self,
-        mel_frames: &[Vec<f32>],
+        embedded: &Tensor3,
         mut trace: Option<&mut EncoderTrace>,
     ) -> ModelResult<(Vec<f32>, usize)> {
-        if mel_frames.is_empty() || mel_frames.iter().any(|frame| frame.len() != self.mel_bins) {
+        if embedded.shape[0] != 1 || embedded.shape[2] != self.hidden_size {
             return Err(ModelError::InvalidShape(format!(
-                "encoder input must be non-empty [time][{}] mel frames",
-                self.mel_bins
+                "encoder embeddings must be [1, frames, {}]",
+                self.hidden_size
             )));
         }
-        let subsampled = self.subsampling.forward(mel_frames)?;
-        let frames = subsampled.shape[1];
-        if let Some(trace) = trace.as_deref_mut() {
-            trace.subsampling = subsampled.clone();
-        }
-        let mut hidden: Vec<f32> = subsampled
+        let frames = embedded.shape[1];
+        let mut hidden: Vec<f32> = embedded
             .values
             .iter()
             .map(|value| value * self.input_scale)
