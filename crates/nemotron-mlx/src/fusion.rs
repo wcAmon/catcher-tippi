@@ -252,6 +252,11 @@ fn group_duration_ms(labeled: &[(TimedToken, u8)], group: &Group, frame_ms: u64)
 /// single-token segments for two different speakers must both survive).
 /// With only one group total there are no neighbors at all, so nothing to
 /// do either.
+///
+/// Known trade-off: a short turn is collapsed into whichever ADJACENT turn
+/// is long enough — not only in the classic same-speaker (A-B-A) flicker
+/// case — so in a 3+-speaker sandwich (long A, short B, long C with A != C)
+/// the short B is absorbed into A rather than kept distinct.
 fn apply_anti_flicker(labeled: &mut [(TimedToken, u8)], cfg: &FusionConfig) {
     loop {
         let groups = group_labeled(labeled);
