@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use sortformer_mlx::stream::{streaming_update, StreamingConfig, StreamingState};
+use sortformer_mlx::stream::{StreamingConfig, StreamingState, streaming_update};
 
 fn cfg() -> StreamingConfig {
     StreamingConfig {
@@ -254,7 +254,10 @@ fn compression_respects_per_speaker_quota_and_arrival_order() {
 
     // Strictly increasing overall (speaker grouping preserves global order here).
     for w in survivors.windows(2) {
-        assert!(w[0] < w[1], "survivors not strictly increasing: {survivors:?}");
+        assert!(
+            w[0] < w[1],
+            "survivors not strictly increasing: {survivors:?}"
+        );
     }
 
     // Per-speaker floor: each speaker keeps at least `strong` speech frames.

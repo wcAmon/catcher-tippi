@@ -17,8 +17,10 @@ fn help_describes_source_output_and_group_size_arguments() {
 
 #[test]
 fn missing_source_fails_without_panicking() {
-    let output_path =
-        std::env::temp_dir().join(format!("sortformer-convert-cli-test-{}", std::process::id()));
+    let output_path = std::env::temp_dir().join(format!(
+        "sortformer-convert-cli-test-{}",
+        std::process::id()
+    ));
     let output = Command::new(env!("CARGO_BIN_EXE_sortformer-convert"))
         .args([
             "--source",

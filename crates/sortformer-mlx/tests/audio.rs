@@ -20,13 +20,20 @@ fn fixture_config() -> SortformerConfig {
 fn extract_frames_equals_whole_signal_extract_bitwise() {
     let config = fixture_config();
     let frontend = MelFrontend::new(&config);
-    let audio: Vec<f32> = (0..16_000 * 3).map(|i| ((i as f32) * 0.01).sin() * 0.4).collect();
+    let audio: Vec<f32> = (0..16_000 * 3)
+        .map(|i| ((i as f32) * 0.01).sin() * 0.4)
+        .collect();
     let whole = frontend.extract(&audio);
     for (start, count) in [(0usize, 10usize), (5, 48), (whole.len() - 7, 7)] {
         let part = frontend.extract_frames(&audio, start, count);
         assert_eq!(part.len(), count, "frame count for ({start},{count})");
         for (offset, frame) in part.iter().enumerate() {
-            assert_eq!(frame, &whole[start + offset], "frame {} differs", start + offset);
+            assert_eq!(
+                frame,
+                &whole[start + offset],
+                "frame {} differs",
+                start + offset
+            );
         }
     }
 }

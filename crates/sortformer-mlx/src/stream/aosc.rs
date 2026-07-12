@@ -130,7 +130,8 @@ pub fn streaming_update(
     // Trim contexts off the chunk embeddings (:563).
     let chunk = &chunk_embs[lc..chunk_len + lc];
     // Chunk preds sit after [spkcache | fifo | lc] in preds (:564).
-    let chunk_preds = &preds[spkcache_len + fifo_len + lc..spkcache_len + fifo_len + chunk_len + lc];
+    let chunk_preds =
+        &preds[spkcache_len + fifo_len + lc..spkcache_len + fifo_len + chunk_len + lc];
 
     // Append the chunk to the fifo (:567-568).
     state.fifo.extend(chunk.iter().cloned());
@@ -220,7 +221,10 @@ fn get_log_pred_scores(preds: &[Vec<f32>], n_spk: usize) -> Vec<Vec<f32>> {
     preds
         .iter()
         .map(|p| {
-            let log_p: Vec<f32> = p.iter().map(|&x| x.max(PRED_SCORE_THRESHOLD).ln()).collect();
+            let log_p: Vec<f32> = p
+                .iter()
+                .map(|&x| x.max(PRED_SCORE_THRESHOLD).ln())
+                .collect();
             let log_1p: Vec<f32> = p
                 .iter()
                 .map(|&x| (1.0 - x).max(PRED_SCORE_THRESHOLD).ln())

@@ -82,11 +82,8 @@ impl Linear {
                 }
                 // Row-major `[output_dims, input_dims]` -> transposed
                 // `[input_dims, output_dims]` so `x · Wᵀ` is a plain matmul.
-                let weight_t = Array::from_slice(
-                    &weight,
-                    &[output_dims as i32, input_dims as i32],
-                )
-                .transpose_axes(&[1, 0])?;
+                let weight_t = Array::from_slice(&weight, &[output_dims as i32, input_dims as i32])
+                    .transpose_axes(&[1, 0])?;
                 weight_t.eval()?;
                 LinearKind::Float {
                     weight_t,
@@ -361,7 +358,9 @@ impl Diarizer {
     /// Diarizes raw 16 kHz mono audio into per-frame speaker probabilities.
     pub fn diarize(&self, audio: &[f32]) -> ModelResult<Vec<[f32; 4]>> {
         let hidden = self.forward_hidden(audio)?;
-        Ok(speaker_rows(&self.head.forward(&hidden.values, hidden.shape[1])?))
+        Ok(speaker_rows(
+            &self.head.forward(&hidden.values, hidden.shape[1])?,
+        ))
     }
 
     /// Runs the pipeline up to (and including) the final Transformer layer,
@@ -406,13 +405,12 @@ impl Diarizer {
     /// relative-position attention across it), then the shared Transformer tail
     /// and sigmoid head, returning one 4-wide speaker-probability row per input
     /// frame. `embedded` is the assembled UNSCALED pre-encode sequence.
-    pub(crate) fn forward_embedded_preds(
-        &self,
-        embedded: &Tensor3,
-    ) -> ModelResult<Vec<[f32; 4]>> {
+    pub(crate) fn forward_embedded_preds(&self, embedded: &Tensor3) -> ModelResult<Vec<[f32; 4]>> {
         let encoded = self.encoder.forward_embedded(embedded)?;
         let hidden = self.transformer_tail(&encoded)?;
-        Ok(speaker_rows(&self.head.forward(&hidden.values, hidden.shape[1])?))
+        Ok(speaker_rows(
+            &self.head.forward(&hidden.values, hidden.shape[1])?,
+        ))
     }
 }
 

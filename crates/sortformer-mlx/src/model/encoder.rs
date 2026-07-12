@@ -748,22 +748,21 @@ mod tests {
             // Scalar oracle: per-head shift, keep the first `frames` columns.
             let mut expected = vec![0.0f32; heads * frames * frames];
             for head in 0..heads {
-                let head_raw = &raw
-                    [head * frames * position_frames..(head + 1) * frames * position_frames];
+                let head_raw =
+                    &raw[head * frames * position_frames..(head + 1) * frames * position_frames];
                 let head_shift = relative_shift(head_raw, frames, position_frames).unwrap();
                 for query in 0..frames {
                     let source =
                         &head_shift[query * position_frames..query * position_frames + frames];
-                    expected[(head * frames + query) * frames..(head * frames + query + 1) * frames]
+                    expected
+                        [(head * frames + query) * frames..(head * frames + query + 1) * frames]
                         .copy_from_slice(source);
                 }
             }
 
             // GPU path.
-            let positional = Array::from_slice(
-                &raw,
-                &[heads as i32, frames as i32, position_frames as i32],
-            );
+            let positional =
+                Array::from_slice(&raw, &[heads as i32, frames as i32, position_frames as i32]);
             let shifted = gpu_relative_shift(
                 &positional,
                 heads as i32,
