@@ -357,15 +357,7 @@ impl Diarizer {
     /// Diarizes raw 16 kHz mono audio into per-frame speaker probabilities.
     pub fn diarize(&self, audio: &[f32]) -> ModelResult<Vec<[f32; 4]>> {
         let hidden = self.forward_hidden(audio)?;
-        let frames = hidden.shape[1];
-        let probabilities = self.head.forward(&hidden.values, frames)?;
-        // `num_speakers == 4` is guaranteed by `from_parts`, which rejects any
-        // other checkpoint at load time, so this `Vec<[f32; 4]>` contract
-        // always holds here.
-        Ok(probabilities
-            .chunks_exact(4)
-            .map(|frame| [frame[0], frame[1], frame[2], frame[3]])
-            .collect())
+        Ok(speaker_rows(&self.head.forward(&hidden.values, hidden.shape[1])?))
     }
 
     /// Runs the pipeline up to (and including) the final Transformer layer,
@@ -374,6 +366,14 @@ impl Diarizer {
         // Checkpoint preprocessor uses `normalize: "NA"`: raw log-mel frames.
         let mel_frames = self.frontend.extract(audio);
         let encoded = self.encoder.forward(&mel_frames)?;
+        self.transformer_tail(&encoded)
+    }
+
+    /// Shared tail: `encoder_proj` -> 18 Transformer layers, mapping the encoder
+    /// output `[1, frames, encoder_dim]` to the `[1, frames, transformer_dim]`
+    /// hidden state. Reused by the offline `diarize` and the streaming diarizer
+    /// so the model tail is defined exactly once.
+    fn transformer_tail(&self, encoded: &Tensor3) -> ModelResult<Tensor3> {
         let frames = encoded.shape[1];
         let mut hidden = self.encoder_proj.forward(&encoded.values, frames)?;
         for layer in &self.layers {
@@ -384,4 +384,41 @@ impl Diarizer {
             values: hidden,
         })
     }
+
+    /// Log-mel frontend, shared with the streaming diarizer for incremental
+    /// per-chunk mel extraction (`extract_frames`).
+    pub(crate) fn frontend(&self) -> &MelFrontend {
+        &self.frontend
+    }
+
+    /// NEST Fast-Conformer encoder, shared with the streaming diarizer for
+    /// `pre_encode` (subsampling) of each chunk's mel window.
+    pub(crate) fn encoder(&self) -> &Encoder {
+        &self.encoder
+    }
+
+    /// Streaming tail: runs the Conformer blocks (`forward_embedded`, which
+    /// scales the whole `[spkcache | fifo | chunk]` sequence and applies
+    /// relative-position attention across it), then the shared Transformer tail
+    /// and sigmoid head, returning one 4-wide speaker-probability row per input
+    /// frame. `embedded` is the assembled UNSCALED pre-encode sequence.
+    pub(crate) fn forward_embedded_preds(
+        &self,
+        embedded: &Tensor3,
+    ) -> ModelResult<Vec<[f32; 4]>> {
+        let encoded = self.encoder.forward_embedded(embedded)?;
+        let hidden = self.transformer_tail(&encoded)?;
+        Ok(speaker_rows(&self.head.forward(&hidden.values, hidden.shape[1])?))
+    }
+}
+
+/// Groups a flat `[frames * 4]` sigmoid-head output into per-frame speaker rows.
+///
+/// `num_speakers == 4` is guaranteed by `Diarizer::from_parts`, which rejects
+/// any other checkpoint at load time, so this `[f32; 4]` contract always holds.
+fn speaker_rows(probabilities: &[f32]) -> Vec<[f32; 4]> {
+    probabilities
+        .chunks_exact(4)
+        .map(|frame| [frame[0], frame[1], frame[2], frame[3]])
+        .collect()
 }

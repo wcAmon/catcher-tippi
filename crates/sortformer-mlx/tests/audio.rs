@@ -6,6 +6,31 @@ const FIXTURE: &str = include_str!(concat!(
     "/../../tests/fixtures/sortformer_config.json"
 ));
 
+fn fixture_config() -> SortformerConfig {
+    SortformerConfig::from_json(FIXTURE).unwrap()
+}
+
+/// `extract_frames` must return the exact same rows as slicing the whole-signal
+/// `extract` at those indices: both walk the identical per-frame body (centered
+/// window over the preemphasized signal), so the values are bit-for-bit equal.
+/// This is the streaming frontend's correctness contract: pushing audio and
+/// extracting a chunk's mel window incrementally must never diverge from the
+/// offline extraction the parity fixtures were captured against.
+#[test]
+fn extract_frames_equals_whole_signal_extract_bitwise() {
+    let config = fixture_config();
+    let frontend = MelFrontend::new(&config);
+    let audio: Vec<f32> = (0..16_000 * 3).map(|i| ((i as f32) * 0.01).sin() * 0.4).collect();
+    let whole = frontend.extract(&audio);
+    for (start, count) in [(0usize, 10usize), (5, 48), (whole.len() - 7, 7)] {
+        let part = frontend.extract_frames(&audio, start, count);
+        assert_eq!(part.len(), count, "frame count for ({start},{count})");
+        for (offset, frame) in part.iter().enumerate() {
+            assert_eq!(frame, &whole[start + offset], "frame {} differs", start + offset);
+        }
+    }
+}
+
 #[test]
 fn one_second_of_audio_yields_100_normalized_frames() {
     let config = SortformerConfig::from_json(FIXTURE).unwrap();

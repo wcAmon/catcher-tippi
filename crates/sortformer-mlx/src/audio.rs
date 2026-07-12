@@ -60,21 +60,33 @@ impl MelFrontend {
     /// The Sortformer checkpoint's preprocessor is configured with
     /// `normalize: "NA"`, so the encoder consumes these unnormalized frames.
     pub fn extract(&self, audio: &[f32]) -> Vec<Vec<f32>> {
-        // Preemphasis: y[t] = x[t] - k * x[t-1].
-        let mut signal = Vec::with_capacity(audio.len());
-        let mut previous = 0.0f32;
-        for &sample in audio {
-            signal.push(sample - self.preemphasis * previous);
-            previous = sample;
+        self.extract_frames(audio, 0, self.frame_count(audio.len()))
+    }
+
+    /// Number of log-mel frames `extract` emits for `num_samples` input samples.
+    ///
+    /// NeMo keeps `get_seq_len = floor((T + 2*(n_fft/2) - n_fft) / hop)` frames
+    /// (features.py:403-407). `torch.stft(center=True)` produces `floor(T/hop) +
+    /// 1` columns, but NeMo's reported sequence length drops the trailing
+    /// column, so we emit exactly `floor(T/hop)` frames. Streaming (Task 7) uses
+    /// this to know how many mel frames the current audio buffer can supply.
+    pub fn frame_count(&self, num_samples: usize) -> usize {
+        if num_samples == 0 {
+            return 0;
         }
-        // Center-padded framing, Hann window, rfft power, mel, log. NeMo's
-        // `torch.stft(center=True, pad_mode="constant")` zero-pads the signal
-        // by `n_fft / 2` on each side (features.py:377-386), so we pad with
-        // zeros rather than reflecting. The trailing pad is supplied by the
-        // `unwrap_or(0.0)` in the framing loop below.
-        let pad = self.n_fft / 2;
-        let mut padded = vec![0.0f32; pad];
-        padded.extend_from_slice(&signal);
+        let pad_amount = (self.n_fft / 2) * 2;
+        (num_samples + pad_amount).saturating_sub(self.n_fft) / self.hop_length
+    }
+
+    /// Extracts log-mel frames `[start, start + count)` directly from `audio`.
+    ///
+    /// Bit-for-bit identical to slicing `extract(audio)` at the same indices:
+    /// both share `frame_mel`, which reads only the samples a centered window
+    /// touches (`frame * hop ± n_fft / 2`) and computes preemphasis locally
+    /// (`y[s] = x[s] - k * x[s-1]`, `x[-1] = 0`). Streaming pre-encodes each
+    /// chunk's `[lc | chunk | rc]` mel window with this, without re-running the
+    /// whole recording through the frontend every push.
+    pub fn extract_frames(&self, audio: &[f32], start: usize, count: usize) -> Vec<Vec<f32>> {
         // NeMo builds the window with torch.hann_window(win_length,
         // periodic=False), i.e. the symmetric convention dividing by N - 1.
         let window: Vec<f32> = (0..self.window_length)
@@ -87,50 +99,60 @@ impl MelFrontend {
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(self.n_fft);
         let bins = self.n_fft / 2 + 1;
-        // NeMo keeps `get_seq_len = floor((T + 2*(n_fft/2) - n_fft) / hop)`
-        // frames (features.py:403-407). `torch.stft(center=True)` produces
-        // `floor(T/hop) + 1` columns, but NeMo's reported sequence length drops
-        // the trailing column, so we emit exactly `floor(T/hop)` frames.
-        let pad_amount = (self.n_fft / 2) * 2;
-        let frame_count = if signal.is_empty() {
-            0
-        } else {
-            (signal.len() + pad_amount).saturating_sub(self.n_fft) / self.hop_length
-        };
-        // torch.stft's center=True convention (with win_length < n_fft) zero-pads the
-        // window so it is centered within the n_fft FFT frame, rather than left-aligned.
+        (start..start + count)
+            .map(|frame| self.frame_mel(audio, frame, &window, fft.as_ref(), bins))
+            .collect()
+    }
+
+    /// One frame's log-mel vector, reading `audio` through the same centered,
+    /// zero-padded, preemphasized window `extract` uses.
+    fn frame_mel(
+        &self,
+        audio: &[f32],
+        frame: usize,
+        window: &[f32],
+        fft: &dyn rustfft::Fft<f32>,
+        bins: usize,
+    ) -> Vec<f32> {
+        // torch.stft's center=True convention zero-pads the signal by `n_fft / 2`
+        // on each side (features.py:377-386); with `win_length < n_fft` it also
+        // centers the analysis window inside the `n_fft` FFT frame.
+        let pad = self.n_fft / 2;
         let window_offset = (self.n_fft - self.window_length) / 2;
-        let mut output = Vec::with_capacity(frame_count);
-        for frame in 0..frame_count {
-            let start = frame * self.hop_length;
-            let mut buffer = vec![Complex::new(0.0f32, 0.0f32); self.n_fft];
-            for (index, weight) in window.iter().enumerate() {
-                let sample = padded
-                    .get(start + window_offset + index)
-                    .copied()
-                    .unwrap_or(0.0);
-                buffer[window_offset + index] = Complex::new(sample * weight, 0.0);
-            }
-            fft.process(&mut buffer);
-            let power: Vec<f32> = buffer[..bins]
-                .iter()
-                .map(|value| value.norm_sqr())
-                .collect();
-            let mel: Vec<f32> = self
-                .filterbank
-                .iter()
-                .map(|filter| {
-                    let energy: f32 = filter
-                        .iter()
-                        .zip(&power)
-                        .map(|(weight, value)| weight * value)
-                        .sum();
-                    (energy + LOG_ZERO_GUARD).ln()
-                })
-                .collect();
-            output.push(mel);
+        let start = frame * self.hop_length;
+        let mut buffer = vec![Complex::new(0.0f32, 0.0f32); self.n_fft];
+        for (index, weight) in window.iter().enumerate() {
+            // Padded index into `[n_fft/2 zeros | preemphasized signal | zeros]`.
+            let padded_index = start + window_offset + index;
+            let sample = if padded_index < pad {
+                0.0
+            } else {
+                let signal_index = padded_index - pad;
+                if signal_index >= audio.len() {
+                    0.0
+                } else {
+                    let previous = if signal_index == 0 {
+                        0.0
+                    } else {
+                        audio[signal_index - 1]
+                    };
+                    audio[signal_index] - self.preemphasis * previous
+                }
+            };
+            buffer[window_offset + index] = Complex::new(sample * weight, 0.0);
         }
-        output
+        fft.process(&mut buffer);
+        self.filterbank
+            .iter()
+            .map(|filter| {
+                let energy: f32 = filter
+                    .iter()
+                    .zip(&buffer[..bins])
+                    .map(|(weight, value)| weight * value.norm_sqr())
+                    .sum();
+                (energy + LOG_ZERO_GUARD).ln()
+            })
+            .collect()
     }
 }
 
