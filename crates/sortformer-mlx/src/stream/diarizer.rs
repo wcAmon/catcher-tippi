@@ -78,7 +78,16 @@ impl StreamingDiarizer {
     /// Appends audio and emits speaker probabilities for every chunk that now
     /// has a full right context available. Returns per-frame `[f32; 4]` rows in
     /// chunk order.
+    ///
+    /// Once `finish()` has run, the stream is closed: pushing more samples
+    /// after that point is a caller bug (there is no more right-context
+    /// budget left to process them against), so this returns `Ok(Vec::new())`
+    /// without touching `self.audio` or `next_chunk` rather than silently
+    /// buffering samples that `finish()` will never revisit.
     pub fn push_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<[f32; 4]>> {
+        if self.finished {
+            return Ok(Vec::new());
+        }
         self.audio.extend_from_slice(audio);
         let total_mel = self.diarizer.frontend().frame_count(self.audio.len());
         let chunk_mel = self.chunk_mel();
@@ -138,10 +147,10 @@ impl StreamingDiarizer {
         // Pre-encode the [left | chunk | right] mel window into embedding rows.
         let window_start = chunk_start - left_off;
         let window_len = left_off + (chunk_end - chunk_start) + right_off;
-        let mel_window = self
-            .diarizer
-            .frontend()
-            .extract_frames(&self.audio, window_start, window_len);
+        let mel_window =
+            self.diarizer
+                .frontend()
+                .extract_frames(&self.audio, window_start, window_len);
         let chunk_embs = self.diarizer.encoder().pre_encode(&mel_window)?;
         let chunk_rows: Vec<Vec<f32>> = chunk_embs
             .values

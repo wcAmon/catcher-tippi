@@ -31,6 +31,26 @@ struct Reference {
     num_chunks: usize,
     chunk_preds: Vec<Vec<Vec<f32>>>,
     length_trajectory: Vec<Lengths>,
+    final_state: FinalState,
+}
+
+/// Post-`finish()` AOSC state captured from the NeMo reference run.
+///
+/// `mean_sil_emb` (a 512-d silence-embedding running mean) and `n_sil_frames`
+/// are deliberately not asserted here: `StreamingState` keeps them as `pub`
+/// fields, but `StreamingDiarizer` (the type this test drives) keeps its
+/// `state: StreamingState` field private and exposes only `state_lengths()`.
+/// Asserting them would need a new public accessor on `StreamingDiarizer`,
+/// which is more than the "quick win" scope of this fixture-assertion pass —
+/// left as a follow-up if silence-profile parity ever needs direct coverage.
+#[derive(serde::Deserialize)]
+struct FinalState {
+    #[allow(dead_code)]
+    mean_sil_emb: Vec<f32>,
+    #[allow(dead_code)]
+    n_sil_frames: u64,
+    fifo_len: usize,
+    spkcache_len: usize,
 }
 
 #[derive(serde::Deserialize, Clone, Copy)]
@@ -46,7 +66,11 @@ impl Reference {
     fn flat_chunk_preds(&self) -> Vec<[f32; 4]> {
         self.chunk_preds
             .iter()
-            .flat_map(|chunk| chunk.iter().map(|frame| [frame[0], frame[1], frame[2], frame[3]]))
+            .flat_map(|chunk| {
+                chunk
+                    .iter()
+                    .map(|frame| [frame[0], frame[1], frame[2], frame[3]])
+            })
             .collect()
     }
 }
@@ -130,12 +154,18 @@ fn assert_probability_gates(ours: &[[f32; 4]], reference: &[[f32; 4]]) {
     // (mean 0.0062, p99 0.166, fraction 0.0194, max 0.568), not first-principles
     // tolerances; retighten them if the reference is ever regenerated.
     assert!(mean_abs <= 0.02, "mean-abs {mean_abs} > 0.02");
-    assert!(p99 <= 0.25, "p99 {p99} > 0.25 (error tail widened — suspect a bug)");
+    assert!(
+        p99 <= 0.25,
+        "p99 {p99} > 0.25 (error tail widened — suspect a bug)"
+    );
     assert!(
         transition_fraction <= 0.05,
         "transition_fraction {transition_fraction} > 0.05 (divergence became pervasive)"
     );
-    assert!(max_abs <= 0.70, "max-abs {max_abs} > 0.70 (catastrophic regression)");
+    assert!(
+        max_abs <= 0.70,
+        "max-abs {max_abs} > 0.70 (catastrophic regression)"
+    );
 }
 
 #[test]
@@ -174,12 +204,32 @@ fn streaming_chunks_match_nemo_forward_streaming() {
         probed[slot] = Some(diarizer.state_lengths());
     }
 
+    // The fixture's `final_state` is the NeMo reference's post-finish AOSC
+    // state; cross-check it against ours directly (previously deserialized
+    // but never asserted).
+    assert_eq!(
+        diarizer.state_lengths(),
+        (
+            reference.final_state.fifo_len,
+            reference.final_state.spkcache_len
+        ),
+        "post-finish (fifo_len, spkcache_len) mismatch against final_state fixture"
+    );
+
+    // Regression check for the finished-guard fix: pushing more audio after
+    // finish() must be a no-op (empty output, no panic) rather than silently
+    // buffering samples finish() will never revisit.
+    assert!(
+        diarizer.push_samples(&audio[..1600]).unwrap().is_empty(),
+        "push_samples after finish() must return no frames"
+    );
+
     let reference_preds = reference.flat_chunk_preds();
     assert_eq!(ours.len(), reference_preds.len(), "frame count mismatch");
 
     for (slot, &chunk) in probes.iter().enumerate() {
-        let (fifo, spkcache) = probed[slot]
-            .unwrap_or_else(|| panic!("state not probed for chunk {chunk}"));
+        let (fifo, spkcache) =
+            probed[slot].unwrap_or_else(|| panic!("state not probed for chunk {chunk}"));
         let expected = reference.length_trajectory[chunk];
         assert_eq!(
             (fifo, spkcache),
