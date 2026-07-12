@@ -132,7 +132,7 @@ The canonical header is `crates/catcher-ffi/include/catcher.h`. A loaded handle
 can be reused across utterances:
 
 ```c
-catcher_handle_t *handle = catcher_create(model_path, "auto", 3);
+catcher_handle_t *handle = catcher_create(model_path, NULL, "auto", 3);
 catcher_start(handle);
 catcher_push_audio(handle, samples, sample_count);
 catcher_finish(handle);
@@ -140,9 +140,18 @@ const char *text = catcher_text(handle);
 catcher_destroy(handle);
 ```
 
+The second argument is an optional diarization model path; passing `NULL`
+(as above) gives ASR-only transcription, while passing a Sortformer
+diarization artifact directory instead enables speaker attribution and
+populates `catcher_segments`.
+
 Calls are serialized per handle. Returned UTF-8 text is owned by Catcher and is
 valid until the next mutating call. Every exported function validates pointers,
-catches Rust panics, and never unwinds across C/Swift.
+catches Rust panics, and never unwinds across C/Swift. Two more accessors
+follow the same borrowed-pointer lifetime as `catcher_text`:
+`catcher_segments` returns the current speaker segments as a UTF-8 JSON array
+(`"[]"` when no diarization model was supplied), and `catcher_warning`
+returns a non-fatal diarization warning, or `NULL` when there is none.
 
 ## Validation
 
