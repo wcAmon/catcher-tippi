@@ -198,17 +198,51 @@ fn dual_model_create_produces_decodable_segments_json() {
     unsafe {
         assert_eq!(catcher_start(handle), CATCHER_OK);
         for piece in samples.chunks(1600) {
+            // Capture `catcher_segments` before the push so a `CATCHER_NO_UPDATE`
+            // result can be checked against the invariant it is supposed to
+            // guarantee: segments did NOT change. This is the regression test
+            // for the NO_UPDATE-vs-segments bug, where diar-only re-attribution
+            // could silently change segments_json while reporting NO_UPDATE
+            // (because only new-token arrival was checked).
+            let segments_before = CStr::from_ptr(catcher_segments(handle))
+                .to_str()
+                .unwrap()
+                .to_string();
             let status = catcher_push_audio(handle, piece.as_ptr(), piece.len());
             assert!(
                 status == CATCHER_OK || status == CATCHER_NO_UPDATE,
                 "unexpected push status {status}"
             );
+            let segments_after = CStr::from_ptr(catcher_segments(handle))
+                .to_str()
+                .unwrap()
+                .to_string();
+            if status == CATCHER_NO_UPDATE {
+                assert_eq!(
+                    segments_before, segments_after,
+                    "CATCHER_NO_UPDATE must imply catcher_segments did not change"
+                );
+            }
         }
+        let segments_before_finish = CStr::from_ptr(catcher_segments(handle))
+            .to_str()
+            .unwrap()
+            .to_string();
         let status = catcher_finish(handle);
         assert!(
             status == CATCHER_OK || status == CATCHER_NO_UPDATE,
             "unexpected finish status {status}"
         );
+        if status == CATCHER_NO_UPDATE {
+            let segments_after_finish = CStr::from_ptr(catcher_segments(handle))
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                segments_before_finish, segments_after_finish,
+                "CATCHER_NO_UPDATE must imply catcher_segments did not change"
+            );
+        }
 
         let segments_json = CStr::from_ptr(catcher_segments(handle))
             .to_str()

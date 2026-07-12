@@ -11,6 +11,21 @@ extern "C" {
 typedef struct catcher_handle catcher_handle_t;
 typedef int32_t catcher_status_t;
 
+/*
+ * `catcher_push_audio`/`catcher_finish` return `CATCHER_OK` when either new
+ * ASR tokens were decoded from the call *or* `catcher_segments` came out
+ * different than it was beforehand; they return `CATCHER_NO_UPDATE` only
+ * when neither happened. A diarization-only chunk of audio (no new ASR
+ * tokens at all) can still re-attribute or finalize a tentative trailing
+ * segment, so `CATCHER_NO_UPDATE` does NOT imply "catcher_segments is
+ * unchanged" was already true before diarization was added — callers must
+ * re-read `catcher_segments` on every call regardless of status once a
+ * diarization model is attached. `catcher_finish` in particular forces every
+ * trailing segment final, so it returns `CATCHER_OK` in almost every
+ * diarization-enabled case. For an ASR-only handle (NULL `diar_model_path`),
+ * `catcher_segments` never changes, so `CATCHER_NO_UPDATE` keeps its original
+ * v1 meaning: no new transcript text.
+ */
 enum {
     CATCHER_OK = 0,
     CATCHER_NO_UPDATE = 1,

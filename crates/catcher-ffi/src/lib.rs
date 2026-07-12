@@ -143,6 +143,15 @@ pub unsafe extern "C" fn catcher_start(handle: *mut CatcherHandle) -> i32 {
 
 /// Pushes arbitrary mono Float32 16 kHz samples into the active utterance.
 ///
+/// Returns `CATCHER_OK` when new ASR tokens were decoded from this call *or*
+/// `catcher_segments` changed as a result of it (diarization can re-attribute
+/// or finalize a tentative trailing segment on diarization-only audio, with
+/// no new ASR tokens at all); returns `CATCHER_NO_UPDATE` only when neither
+/// happened. Callers must not skip re-reading `catcher_segments` on
+/// `CATCHER_NO_UPDATE` under the assumption that "no new tokens" implies "no
+/// new segments" — that assumption held for the ASR-only v1 API but not once
+/// a diarization model is attached.
+///
 /// # Safety
 ///
 /// `handle` must be live. When `count` is non-zero, `samples` must reference at
@@ -180,8 +189,8 @@ pub unsafe extern "C" fn catcher_push_audio(
                 handle.timed_tokens.extend(tokens);
             }
             push_diar_samples(handle, samples);
-            rebuild_strings(handle)?;
-            Ok(if has_new_tokens {
+            let segments_changed = rebuild_strings_and_report_segment_change(handle)?;
+            Ok(if has_new_tokens || segments_changed {
                 CATCHER_OK
             } else {
                 CATCHER_NO_UPDATE
@@ -191,6 +200,12 @@ pub unsafe extern "C" fn catcher_push_audio(
 }
 
 /// Flushes the final partial audio window and locks the current utterance.
+///
+/// Same `CATCHER_OK`/`CATCHER_NO_UPDATE` semantics as `catcher_push_audio`:
+/// `catcher_finish` always forces every trailing tentative segment final,
+/// which almost always changes `catcher_segments` even with no new ASR
+/// tokens, so `CATCHER_OK` is the common case for a diarization-enabled
+/// handle.
 ///
 /// # Safety
 ///
@@ -217,8 +232,8 @@ pub unsafe extern "C" fn catcher_finish(handle: *mut CatcherHandle) -> i32 {
             finish_diar(handle);
             handle.fusion.flush();
             handle.state = SessionState::Finished;
-            rebuild_strings(handle)?;
-            Ok(if has_new_tokens {
+            let segments_changed = rebuild_strings_and_report_segment_change(handle)?;
+            Ok(if has_new_tokens || segments_changed {
                 CATCHER_OK
             } else {
                 CATCHER_NO_UPDATE
@@ -385,8 +400,17 @@ fn finish_diar(handle: &mut CatcherHandle) {
 }
 
 /// Rebuilds `handle.text` (s2twp-converted full transcript) and
-/// `handle.segments_json` from the accumulated tokens/diarization frames.
-fn rebuild_strings(handle: &mut CatcherHandle) -> Result<(), (i32, String)> {
+/// `handle.segments_json` from the accumulated tokens/diarization frames, and
+/// reports whether `segments_json` came out different from what it was
+/// before this call. Diarization-only audio (no new ASR tokens) can still
+/// re-attribute or finalize a tentative trailing segment, so callers must not
+/// assume "no new tokens" implies "no update to report" — see
+/// `CATCHER_NO_UPDATE`'s doc comment in the header.
+fn rebuild_strings_and_report_segment_change(
+    handle: &mut CatcherHandle,
+) -> Result<bool, (i32, String)> {
+    let previous_segments_json = handle.segments_json.as_bytes().to_vec();
+
     let ids: Vec<u32> = handle.timed_tokens.iter().map(|token| token.id).collect();
     let decoded = handle
         .tokenizer
@@ -407,7 +431,8 @@ fn rebuild_strings(handle: &mut CatcherHandle) -> Result<(), (i32, String)> {
         "[]".to_string()
     };
     handle.segments_json = safe_c_string(&segments_json);
-    Ok(())
+
+    Ok(handle.segments_json.as_bytes() != previous_segments_json.as_slice())
 }
 
 unsafe fn with_handle_mut(

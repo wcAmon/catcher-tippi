@@ -7,6 +7,14 @@
 typedef struct catcher_handle catcher_handle_t;
 typedef int32_t catcher_status_t;
 
+/*
+ * `catcher_push_audio`/`catcher_finish` return `CATCHER_OK` when new ASR
+ * tokens arrived OR `catcher_segments` changed (diarization-only audio can
+ * re-attribute/finalize a tentative segment with no new tokens);
+ * `CATCHER_NO_UPDATE` means neither happened. Do not skip re-reading
+ * `catcher_segments` on `CATCHER_NO_UPDATE` when a diarization model is
+ * attached — see crates/catcher-ffi/include/catcher.h for the full contract.
+ */
 enum {
     CATCHER_OK = 0,
     CATCHER_NO_UPDATE = 1,
