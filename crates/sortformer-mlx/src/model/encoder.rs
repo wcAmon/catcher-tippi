@@ -13,7 +13,7 @@ use nemotron_mlx::model::{
 };
 use nemotron_mlx::weights::{Artifact, ArtifactError};
 
-use super::ops::{Norm, add_in_place, relu_in_place, silu_in_place, softmax_in_place};
+use super::ops::{Norm, add_in_place, relu_in_place, silu_in_place};
 use super::{ModelError, ModelResult};
 use crate::config::SortformerConfig;
 
@@ -471,6 +471,9 @@ impl SelfAttention {
     /// and softmaxed over every frame of the utterance.
     fn forward(&self, input: &[f32], frames: usize, positions: &Tensor3) -> ModelResult<Vec<f32>> {
         let hidden_size = self.hidden_size;
+        let heads = self.heads as i32;
+        let head_dim = self.head_dim as i32;
+        let frames_i = frames as i32;
         let queries = self.linear_q.forward_f32(input, frames)?;
         let keys = self.linear_k.forward_f32(input, frames)?;
         let values = self.linear_v.forward_f32(input, frames)?;
@@ -479,44 +482,52 @@ impl SelfAttention {
             .linear_pos
             .forward_f32(&positions.values, position_frames)?;
         let scale = 1.0 / (self.head_dim as f32).sqrt();
-        let mut attended = vec![0.0; frames * hidden_size];
+
+        // Split every projection into per-head blocks [H, *, D].
+        let split = [frames_i, heads, head_dim];
+        let q = Array::from_slice(&queries, &split).transpose_axes(&[1, 0, 2])?;
+        let k = Array::from_slice(&keys, &split).transpose_axes(&[1, 0, 2])?;
+        let v = Array::from_slice(&values, &split).transpose_axes(&[1, 0, 2])?;
+        let p = Array::from_slice(&relative_keys, &[position_frames as i32, heads, head_dim])
+            .transpose_axes(&[1, 0, 2])?;
+        // Position biases broadcast over the time axis: [H, 1, D].
+        let bias_u = Array::from_slice(&self.bias_u, &[heads, 1, head_dim]);
+        let bias_v = Array::from_slice(&self.bias_v, &[heads, 1, head_dim]);
+
+        // Content scores (q + u)·kᵀ -> [H, T, T].
+        let content = q.add(&bias_u)?.matmul(k.transpose_axes(&[0, 2, 1])?)?;
+        // Positional scores (q + v)·pᵀ -> raw [H, T, P], then per-head shift.
+        let positional = q.add(&bias_v)?.matmul(p.transpose_axes(&[0, 2, 1])?)?;
+        positional.eval()?;
+        let positional = positional.try_as_slice::<f32>()?;
+
+        // `relative_shift` is a cheap CPU reindex; apply it per head and keep
+        // only the first `frames` columns to rebuild the [H, T, T] score block.
+        let mut shifted = vec![0.0f32; self.heads * frames * frames];
         for head in 0..self.heads {
-            let offset = head * self.head_dim;
-            let mut raw_relative = vec![0.0; frames * position_frames];
+            let raw =
+                &positional[head * frames * position_frames..(head + 1) * frames * position_frames];
+            let head_shift = relative_shift(raw, frames, position_frames)?;
             for query in 0..frames {
-                for position in 0..position_frames {
-                    let mut score = 0.0;
-                    for dimension in 0..self.head_dim {
-                        score += (queries[query * hidden_size + offset + dimension]
-                            + self.bias_v[offset + dimension])
-                            * relative_keys[position * hidden_size + offset + dimension];
-                    }
-                    raw_relative[query * position_frames + position] = score;
-                }
-            }
-            let shifted = relative_shift(&raw_relative, frames, position_frames)?;
-            for query in 0..frames {
-                let mut scores = vec![0.0; frames];
-                for (key, score_slot) in scores.iter_mut().enumerate() {
-                    let mut content = 0.0;
-                    for dimension in 0..self.head_dim {
-                        content += (queries[query * hidden_size + offset + dimension]
-                            + self.bias_u[offset + dimension])
-                            * keys[key * hidden_size + offset + dimension];
-                    }
-                    *score_slot = (content + shifted[query * position_frames + key]) * scale;
-                }
-                softmax_in_place(&mut scores);
-                for dimension in 0..self.head_dim {
-                    let mut value = 0.0;
-                    for (key, probability) in scores.iter().enumerate() {
-                        value += probability * values[key * hidden_size + offset + dimension];
-                    }
-                    attended[query * hidden_size + offset + dimension] = value;
-                }
+                let source = &head_shift[query * position_frames..query * position_frames + frames];
+                let destination = &mut shifted
+                    [(head * frames + query) * frames..(head * frames + query + 1) * frames];
+                destination.copy_from_slice(source);
             }
         }
-        Ok(self.linear_out.forward_f32(&attended, frames)?)
+        let shifted = Array::from_slice(&shifted, &[heads, frames_i, frames_i]);
+
+        // (content + shifted) * scale, softmax over keys, then × v.
+        let scores = content.add(&shifted)?.multiply(Array::from_f32(scale))?;
+        let probabilities = mlx_rs::ops::softmax_axis(&scores, -1, None)?;
+        let attended = probabilities
+            .matmul(v)?
+            .transpose_axes(&[1, 0, 2])?
+            .reshape(&[frames_i, hidden_size as i32])?;
+        attended.eval()?;
+        Ok(self
+            .linear_out
+            .forward_f32(attended.try_as_slice::<f32>()?, frames)?)
     }
 }
 

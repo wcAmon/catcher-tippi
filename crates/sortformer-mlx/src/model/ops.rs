@@ -72,15 +72,3 @@ pub(crate) fn silu_in_place(values: &mut [f32]) {
         *value /= 1.0 + (-*value).exp();
     }
 }
-
-pub(crate) fn softmax_in_place(values: &mut [f32]) {
-    let maximum = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let mut total = 0.0;
-    for value in values.iter_mut() {
-        *value = (*value - maximum).exp();
-        total += *value;
-    }
-    for value in values {
-        *value /= total;
-    }
-}

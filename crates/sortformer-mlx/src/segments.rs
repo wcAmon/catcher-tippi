@@ -102,7 +102,11 @@ mod tests {
         let segments = segments_from_probs(&input, 0.5, 2, 80);
         assert_eq!(
             segments,
-            vec![SpeakerSegment { speaker: 0, start_ms: 0, end_ms: 800 }]
+            vec![SpeakerSegment {
+                speaker: 0,
+                start_ms: 0,
+                end_ms: 800
+            }]
         );
     }
 
@@ -119,7 +123,11 @@ mod tests {
         let segments = segments_from_probs(&input, 0.5, 2, 80);
         assert_eq!(
             segments,
-            vec![SpeakerSegment { speaker: 1, start_ms: 0, end_ms: 800 }]
+            vec![SpeakerSegment {
+                speaker: 1,
+                start_ms: 0,
+                end_ms: 800
+            }]
         );
     }
 
@@ -136,8 +144,16 @@ mod tests {
         assert_eq!(
             segments,
             vec![
-                SpeakerSegment { speaker: 0, start_ms: 0, end_ms: 800 },
-                SpeakerSegment { speaker: 3, start_ms: 400, end_ms: 800 },
+                SpeakerSegment {
+                    speaker: 0,
+                    start_ms: 0,
+                    end_ms: 800
+                },
+                SpeakerSegment {
+                    speaker: 3,
+                    start_ms: 400,
+                    end_ms: 800
+                },
             ]
         );
     }

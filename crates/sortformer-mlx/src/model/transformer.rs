@@ -14,10 +14,11 @@
 //! stay F16 in the artifact and are loaded here as a scalar F32 `Linear`.
 //! Only `sortformer_modules.encoder_proj` ([192, 512]) is INT8.
 
+use mlx_rs::Array;
 use nemotron_mlx::model::{QuantizedLinear, Tensor3};
 use nemotron_mlx::weights::{Artifact, ArtifactError, Storage};
 
-use super::ops::{Norm, relu_in_place, softmax_in_place};
+use super::ops::{Norm, relu_in_place};
 use super::{Encoder, ModelError, ModelResult};
 use crate::audio::MelFrontend;
 use crate::config::SortformerConfig;
@@ -156,37 +157,30 @@ impl SelfAttention {
     }
 
     fn forward(&self, input: &[f32], frames: usize) -> ModelResult<Vec<f32>> {
-        let hidden_size = self.hidden_size;
         let queries = self.query_net.forward(input, frames)?;
         let keys = self.key_net.forward(input, frames)?;
         let values = self.value_net.forward(input, frames)?;
         // NeMo scales queries and keys each by 1/sqrt(sqrt(head_dim)); the
         // product scaling of the scores is therefore 1/sqrt(head_dim).
         let scale = 1.0 / (self.head_dim as f32).sqrt();
-        let mut attended = vec![0.0; frames * hidden_size];
-        for head in 0..self.heads {
-            let offset = head * self.head_dim;
-            for query in 0..frames {
-                let mut scores = vec![0.0; frames];
-                for (key, score_slot) in scores.iter_mut().enumerate() {
-                    let mut content = 0.0;
-                    for dimension in 0..self.head_dim {
-                        content += queries[query * hidden_size + offset + dimension]
-                            * keys[key * hidden_size + offset + dimension];
-                    }
-                    *score_slot = content * scale;
-                }
-                softmax_in_place(&mut scores);
-                for dimension in 0..self.head_dim {
-                    let mut value = 0.0;
-                    for (key, probability) in scores.iter().enumerate() {
-                        value += probability * values[key * hidden_size + offset + dimension];
-                    }
-                    attended[query * hidden_size + offset + dimension] = value;
-                }
-            }
-        }
-        self.out_projection.forward(&attended, frames)
+        let split = [frames as i32, self.heads as i32, self.head_dim as i32];
+        // Row-major [T, H*D] -> [T, H, D] -> [H, T, D] per head.
+        let q = Array::from_slice(&queries, &split).transpose_axes(&[1, 0, 2])?;
+        let k = Array::from_slice(&keys, &split).transpose_axes(&[1, 0, 2])?;
+        let v = Array::from_slice(&values, &split).transpose_axes(&[1, 0, 2])?;
+        // Scaled dot-product scores [H, T, T], softmaxed over keys.
+        let scores = q
+            .matmul(k.transpose_axes(&[0, 2, 1])?)?
+            .multiply(Array::from_f32(scale))?;
+        let probabilities = mlx_rs::ops::softmax_axis(&scores, -1, None)?;
+        // [H, T, D] -> [T, H, D] -> [T, H*D].
+        let attended = probabilities
+            .matmul(v)?
+            .transpose_axes(&[1, 0, 2])?
+            .reshape(&[frames as i32, self.hidden_size as i32])?;
+        attended.eval()?;
+        self.out_projection
+            .forward(attended.try_as_slice::<f32>()?, frames)
     }
 }
 
