@@ -43,6 +43,9 @@ hf download wcamon/catcher-diar-mlx-int8 \
   --local-dir catcher-diar-mlx-int8
 ```
 
+The diarization model is currently used by the `catcher diarize` CLI only;
+Tippi app integration arrives in a later phase.
+
 ## Build and run Tippi
 
 ```sh

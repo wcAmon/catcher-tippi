@@ -19,6 +19,15 @@
 - Fixture files live in top-level `tests/fixtures/` (existing repo convention); crate tests reach them via `concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/…")`.
 - Ground-truth rule: tensor names, shapes, and config values come from the exported `inventory.json`/`config.json`, never from guesses. If a name in this plan disagrees with the exported inventory, the inventory wins — update the code and fixtures, not the checkpoint.
 
+## As-built corrections — the fixtures override the 80-mel/normalized-frontend expectations below
+
+- The mel frontend uses 128 mel features, not 80.
+- `normalize: "NA"` in the exported preprocessor config: the pipeline consumes raw log-mel frames, not per-feature-normalized ones.
+- `xscaling: true`: subsampled features are multiplied by `sqrt(512)` after `pre_encode`, before the first Conformer block.
+- The Hann window is built with the symmetric (`periodic=False`) convention.
+- Storage is dispatched per-tensor (INT8 group-128 vs. F16) by shape; the 192-wide Transformer stack stays F16 because 192 is not a multiple of 128, not as an accuracy fallback.
+- `sortformer-mlx` implements its own mel frontend and Conformer layers, reusing only `nemotron-mlx` primitives (not its ASR encoder).
+
 ---
 
 ### Task 1: Sortformer weight export tool

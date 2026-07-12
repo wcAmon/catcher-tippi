@@ -6,6 +6,26 @@
   speaker-segmented messages in Tippi, Simplified→Traditional Chinese output,
   speaker naming, transcript export and copy.
 
+## As-built corrections (Phase 1)
+
+The Phase 1 implementation revealed several checkpoint facts that differ from
+assumptions elsewhere in this document:
+
+- The mel frontend uses **128 mel features**, not 80.
+- The exported preprocessor config is `normalize: "NA"` — the pipeline
+  consumes raw (unnormalized) log-mel frames, not per-feature-normalized ones.
+- `xscaling: true`: the encoder multiplies subsampled features by `sqrt(512)`
+  after `pre_encode`, before the first Conformer block.
+- The mel window function is a Hann window built with the symmetric
+  (`periodic=False`) convention, matching `torch.hann_window`.
+- Tensor storage is dispatched per-tensor between INT8 (affine, group size
+  128) and F16 based on shape, not by module: the 192-wide Transformer stack
+  stays F16 because its input dimension (192) is not a multiple of the
+  group size — this is a divisibility constraint, not an accuracy fallback.
+- `sortformer-mlx` implements its own mel frontend and Conformer encoder
+  layers; it only reuses `nemotron-mlx` primitives (quantized matmul,
+  artifact I/O, tensor helpers), not `nemotron-mlx`'s ASR-specific encoder.
+
 ## Goals
 
 1. Live speaker segmentation while recording: the transcript renders as
