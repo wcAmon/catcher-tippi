@@ -13,3 +13,5 @@
 /.worktrees/
 /apps/tippi/.build/
 /apps/tippi/build/
+
+/.env
