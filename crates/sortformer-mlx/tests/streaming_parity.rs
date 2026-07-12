@@ -10,8 +10,21 @@
 //! (chunk 31), and the last.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use sortformer_mlx::stream::StreamingDiarizer;
+
+/// MLX evaluates onto a process-global Metal command buffer that is not safe
+/// for concurrent submission. This binary has a single MLX-driving test today,
+/// but any future addition must also take this guard so the tests run serially
+/// (same pattern as tests/diarizer_parity.rs).
+static MLX_PIPELINE: Mutex<()> = Mutex::new(());
+
+fn serialize_mlx() -> MutexGuard<'static, ()> {
+    MLX_PIPELINE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(serde::Deserialize)]
 struct Reference {
@@ -113,6 +126,9 @@ fn assert_probability_gates(ours: &[[f32; 4]], reference: &[[f32; 4]]) {
         first_divergent_frame.map(|frame| frame / 6)
     );
 
+    // Gate values are empirical tripwires set ~1.2-3x above the observed run
+    // (mean 0.0062, p99 0.166, fraction 0.0194, max 0.568), not first-principles
+    // tolerances; retighten them if the reference is ever regenerated.
     assert!(mean_abs <= 0.02, "mean-abs {mean_abs} > 0.02");
     assert!(p99 <= 0.25, "p99 {p99} > 0.25 (error tail widened — suspect a bug)");
     assert!(
@@ -125,6 +141,7 @@ fn assert_probability_gates(ours: &[[f32; 4]], reference: &[[f32; 4]]) {
 #[test]
 #[ignore = "requires SORTFORMER_MLX_ARTIFACT"]
 fn streaming_chunks_match_nemo_forward_streaming() {
+    let _guard = serialize_mlx();
     let reference = load_streaming_reference();
     let mut diarizer = StreamingDiarizer::from_artifact_dir(artifact_dir()).unwrap();
     assert_eq!(diarizer.frame_ms(), 80);

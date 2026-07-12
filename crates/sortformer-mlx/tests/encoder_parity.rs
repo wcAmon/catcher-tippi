@@ -6,11 +6,25 @@
 //! (reference `features` mean is -10.18, clearly not per-feature normalized).
 
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use nemotron_mlx::weights::Artifact;
 use sortformer_mlx::audio::MelFrontend;
 use sortformer_mlx::config::SortformerConfig;
 use sortformer_mlx::model::Encoder;
+
+/// MLX evaluates onto a process-global Metal command buffer that is not safe
+/// for concurrent submission; two MLX-driving tests running on separate
+/// threads abort with "encodeWaitForEvent:value: with uncommitted encoder".
+/// Each MLX-driving test holds this lock so they run serially (same pattern as
+/// tests/diarizer_parity.rs).
+static MLX_PIPELINE: Mutex<()> = Mutex::new(());
+
+fn serialize_mlx() -> MutexGuard<'static, ()> {
+    MLX_PIPELINE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(serde::Deserialize)]
 struct Summary {
@@ -150,6 +164,7 @@ fn assert_close(
 #[test]
 #[ignore = "requires SORTFORMER_MLX_ARTIFACT"]
 fn mel_features_match_nemo_preprocessor() {
+    let _guard = serialize_mlx();
     let reference = reference();
     let config = SortformerConfig::load(artifact_dir()).unwrap();
     // The checkpoint preprocessor does not normalize (`normalize: "NA"`).
@@ -171,6 +186,7 @@ fn mel_features_match_nemo_preprocessor() {
 #[test]
 #[ignore = "requires SORTFORMER_MLX_ARTIFACT"]
 fn pre_encode_matches_nemo_streaming_chunk0() {
+    let _guard = serialize_mlx();
     let reference = streaming_reference();
     let config = fixture_config();
     let encoder = load_encoder();
@@ -214,6 +230,7 @@ fn pre_encode_matches_nemo_streaming_chunk0() {
 #[test]
 #[ignore = "requires SORTFORMER_MLX_ARTIFACT"]
 fn encoder_output_matches_nemo_within_int8_tolerance() {
+    let _guard = serialize_mlx();
     let reference = reference();
     let artifact = Artifact::load(artifact_dir()).unwrap();
     let config = SortformerConfig::load(artifact_dir()).unwrap();
