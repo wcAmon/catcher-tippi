@@ -216,8 +216,13 @@ impl StreamingTranscriber {
             self.prompt,
             &mut self.encoder_cache,
         )?;
-        let encoded_frames = encoded.shape[1] as u64;
+        // `encode_chunk` has already mutated the encoder cache in place, so
+        // this window counts as consumed no matter how decoding goes below.
+        // Advance `frames_seen` here — decoupled from `decode_frames`'s
+        // outcome — so a surfaced decode error cannot desync the global frame
+        // clock from the encoder cache when the caller keeps pushing audio.
         let offset = self.frames_seen;
+        self.frames_seen += encoded.shape[1] as u64;
         let tokens = self
             .decoder
             .decode_frames(&encoded, &mut self.decoder_state)?
@@ -227,7 +232,6 @@ impl StreamingTranscriber {
                 frame: token.frame + offset,
             })
             .collect();
-        self.frames_seen += encoded_frames;
         Ok(tokens)
     }
 }

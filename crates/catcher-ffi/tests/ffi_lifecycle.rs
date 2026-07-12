@@ -1,11 +1,24 @@
 use std::ffi::{CStr, CString};
 use std::ptr;
+use std::sync::{Mutex, MutexGuard};
 
 use catcher_ffi::{
     CATCHER_INVALID_ARGUMENT, CATCHER_INVALID_STATE, CATCHER_NO_UPDATE, CATCHER_OK, catcher_create,
     catcher_destroy, catcher_finish, catcher_last_error, catcher_push_audio, catcher_start,
     catcher_text,
 };
+
+/// MLX evaluates onto a process-global Metal command buffer that is not safe
+/// for concurrent submission; two full-pipeline tests running on separate
+/// threads abort with "A command encoder is already encoding to this command
+/// buffer". Each MLX-driving test holds this lock so they run serially.
+static MLX_PIPELINE: Mutex<()> = Mutex::new(());
+
+fn serialize_mlx() -> MutexGuard<'static, ()> {
+    MLX_PIPELINE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[test]
 fn null_arguments_report_errors_without_unwinding() {
@@ -25,6 +38,7 @@ fn null_arguments_report_errors_without_unwinding() {
 #[test]
 #[ignore = "requires NEMOTRON_MLX_ARTIFACT"]
 fn valid_handle_can_restart_without_reloading() {
+    let _guard = serialize_mlx();
     let model = CString::new(std::env::var("NEMOTRON_MLX_ARTIFACT").unwrap()).unwrap();
     let language = CString::new("en-US").unwrap();
     let handle = unsafe { catcher_create(model.as_ptr(), language.as_ptr(), 3) };
@@ -52,6 +66,7 @@ fn valid_handle_can_restart_without_reloading() {
 #[test]
 #[ignore = "requires NEMOTRON_MLX_ARTIFACT"]
 fn c_abi_transcribes_reference_wav_exactly() {
+    let _guard = serialize_mlx();
     let model = CString::new(std::env::var("NEMOTRON_MLX_ARTIFACT").unwrap()).unwrap();
     let language = CString::new("en-US").unwrap();
     let handle = unsafe { catcher_create(model.as_ptr(), language.as_ptr(), 3) };

@@ -1,10 +1,23 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use nemotron_mlx::{
     model::{LanguagePrompt, StreamingEncoder, StreamingTranscriber, Tensor3, TimedToken},
     weights::Artifact,
 };
+
+/// MLX evaluates onto a process-global Metal command buffer that is not safe
+/// for concurrent submission; two full-pipeline tests running on separate
+/// threads abort with "A command encoder is already encoding to this command
+/// buffer". Each MLX-driving test holds this lock so they run serially.
+static MLX_PIPELINE: Mutex<()> = Mutex::new(());
+
+fn serialize_mlx() -> MutexGuard<'static, ()> {
+    MLX_PIPELINE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(serde::Deserialize)]
 struct EncoderReference {
@@ -37,6 +50,7 @@ struct TranscriptionReference {
 #[test]
 #[ignore = "requires NEMOTRON_MLX_ARTIFACT and the downloaded checkpoint"]
 fn real_wav_matches_official_streaming_token_ids() {
+    let _guard = serialize_mlx();
     let path = std::env::var_os("NEMOTRON_MLX_ARTIFACT")
         .map(PathBuf::from)
         .expect("set NEMOTRON_MLX_ARTIFACT to a converted artifact directory");
@@ -91,6 +105,7 @@ fn real_wav_matches_official_streaming_token_ids() {
 #[test]
 #[ignore = "requires NEMOTRON_MLX_ARTIFACT and the downloaded checkpoint"]
 fn chunked_and_offline_decodes_agree_on_ids_and_frames() {
+    let _guard = serialize_mlx();
     let path = std::env::var_os("NEMOTRON_MLX_ARTIFACT")
         .map(PathBuf::from)
         .expect("set NEMOTRON_MLX_ARTIFACT to a converted artifact directory");
@@ -125,6 +140,7 @@ fn chunked_and_offline_decodes_agree_on_ids_and_frames() {
 #[test]
 #[ignore = "requires NEMOTRON_MLX_ARTIFACT and the downloaded checkpoint"]
 fn real_checkpoint_loads_and_encodes_the_first_streaming_chunk() {
+    let _guard = serialize_mlx();
     let path = std::env::var_os("NEMOTRON_MLX_ARTIFACT")
         .map(PathBuf::from)
         .expect("set NEMOTRON_MLX_ARTIFACT to a converted artifact directory");
