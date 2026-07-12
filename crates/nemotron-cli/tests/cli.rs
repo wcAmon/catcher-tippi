@@ -52,3 +52,35 @@ fn transcribes_the_reference_wav_end_to_end() {
         "Hello, this is a streaming speech recognition test"
     );
 }
+
+#[test]
+fn help_lists_the_diarize_subcommand() {
+    let output = Command::new(env!("CARGO_BIN_EXE_catcher"))
+        .arg("--help")
+        .output()
+        .expect("run catcher help");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("diarize"));
+}
+
+#[test]
+fn diarize_with_missing_model_fails_cleanly() {
+    let output = Command::new(env!("CARGO_BIN_EXE_catcher"))
+        .args([
+            "diarize",
+            "--model",
+            "/nonexistent",
+            "--audio",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/fixtures/hello-streaming.wav"
+            ),
+        ])
+        .output()
+        .expect("run catcher diarize");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("catcher:"), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}

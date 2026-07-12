@@ -36,6 +36,24 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Detect who speaks when in a mono 16 kHz WAV (up to 4 speakers).
+    Diarize {
+        /// Converted Sortformer MLX artifact directory.
+        #[arg(long)]
+        model: PathBuf,
+        /// Mono 16 kHz PCM or float WAV file.
+        #[arg(long)]
+        audio: PathBuf,
+        /// Speaker activity probability threshold.
+        #[arg(long, default_value_t = 0.5)]
+        threshold: f32,
+        /// Minimum segment/gap duration in milliseconds.
+        #[arg(long, default_value_t = 400)]
+        min_duration_ms: u64,
+        /// Emit a JSON array instead of plain text.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -79,8 +97,48 @@ fn run(arguments: Arguments) -> Result<(), Box<dyn std::error::Error>> {
                 println!("{text}");
             }
         }
+        Command::Diarize {
+            model,
+            audio,
+            threshold,
+            min_duration_ms,
+            json,
+        } => {
+            let samples = read_wav(&audio)?;
+            let diarizer = sortformer_mlx::model::Diarizer::from_artifact_dir(&model)?;
+            let probabilities = diarizer.diarize(&samples)?;
+            const FRAME_MS: u64 = 80;
+            let min_frames = (min_duration_ms / FRAME_MS).max(1) as usize;
+            let segments = sortformer_mlx::segments::segments_from_probs(
+                &probabilities,
+                threshold,
+                min_frames,
+                FRAME_MS,
+            );
+            if json {
+                println!("{}", serde_json::to_string(&segments)?);
+            } else {
+                for segment in &segments {
+                    println!(
+                        "speaker {}  {} - {}",
+                        segment.speaker + 1,
+                        format_timestamp(segment.start_ms),
+                        format_timestamp(segment.end_ms)
+                    );
+                }
+            }
+        }
     }
     Ok(())
+}
+
+fn format_timestamp(milliseconds: u64) -> String {
+    format!(
+        "{:02}:{:02}.{:03}",
+        milliseconds / 60_000,
+        milliseconds % 60_000 / 1_000,
+        milliseconds % 1_000
+    )
 }
 
 fn read_wav(path: &Path) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
