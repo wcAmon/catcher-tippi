@@ -6,10 +6,13 @@ use std::ptr;
 use std::slice;
 
 use nemotron_mlx::{
+    fusion::{Fusion, FusionConfig},
     model::{StreamingTranscriber, TimedToken},
+    opencc,
     tokenizer::Tokenizer,
     weights::Artifact,
 };
+use sortformer_mlx::stream::StreamingDiarizer;
 
 pub const CATCHER_OK: i32 = 0;
 pub const CATCHER_NO_UPDATE: i32 = 1;
@@ -32,37 +35,67 @@ enum SessionState {
 pub struct CatcherHandle {
     transcriber: StreamingTranscriber,
     tokenizer: Tokenizer,
-    tokens: Vec<TimedToken>,
+    /// `Some` only while a diarizer was requested at `catcher_create` *and*
+    /// has not yet hit a runtime error. Degrades to `None` on a diarization
+    /// runtime failure without affecting transcription.
+    diarizer: Option<StreamingDiarizer>,
+    /// Whether `catcher_create` was given a non-null `diar_model_path`. Kept
+    /// separately from `diarizer` because `diarizer` can degrade to `None`
+    /// mid-session while `catcher_segments` must keep reporting real (if
+    /// stale) segments rather than snapping back to the never-diarized `[]`.
+    diarization_requested: bool,
+    fusion: Fusion,
+    timed_tokens: Vec<TimedToken>,
     text: CString,
+    segments_json: CString,
+    warning: Option<CString>,
     last_error: CString,
     state: SessionState,
 }
 
-/// Loads a Catcher model and creates an idle transcription handle.
+/// Loads a Catcher ASR model (and, optionally, a Sortformer diarization
+/// model) and creates an idle transcription handle.
 ///
 /// # Safety
 ///
-/// `model_path` and `language` must point to valid NUL-terminated UTF-8 strings.
+/// `asr_model_path` and `language` must point to valid NUL-terminated UTF-8
+/// strings. `diar_model_path` must be null or point to a valid
+/// NUL-terminated UTF-8 string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn catcher_create(
-    model_path: *const c_char,
+    asr_model_path: *const c_char,
+    diar_model_path: *const c_char,
     language: *const c_char,
     lookahead: u32,
 ) -> *mut CatcherHandle {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let model_path = unsafe { required_string(model_path, "model_path")? };
+        let model_path = unsafe { required_string(asr_model_path, "asr_model_path")? };
         let language = unsafe { required_string(language, "language")? };
+        let diar_model_path = unsafe { optional_string(diar_model_path, "diar_model_path")? };
         let artifact = Artifact::load(&model_path).map_err(|error| error.to_string())?;
         let transcriber = StreamingTranscriber::new(&artifact, &language, lookahead as usize)
             .map_err(|error| error.to_string())?;
         let tokenizer =
             Tokenizer::from_json(Path::new(&model_path).join("tokenizer.json"), 0, 13_087)
                 .map_err(|error| error.to_string())?;
+        let diarization_requested = diar_model_path.is_some();
+        let diarizer = match diar_model_path {
+            Some(diar_model_path) => Some(
+                StreamingDiarizer::from_artifact_dir(&diar_model_path)
+                    .map_err(|error| error.to_string())?,
+            ),
+            None => None,
+        };
         Ok::<_, String>(CatcherHandle {
             transcriber,
             tokenizer,
-            tokens: Vec::new(),
+            diarizer,
+            diarization_requested,
+            fusion: Fusion::new(FusionConfig::default()),
+            timed_tokens: Vec::new(),
             text: empty_c_string(),
+            segments_json: safe_c_string("[]"),
+            warning: None,
             last_error: empty_c_string(),
             state: SessionState::Idle,
         })
@@ -94,8 +127,14 @@ pub unsafe extern "C" fn catcher_start(handle: *mut CatcherHandle) -> i32 {
                 .transcriber
                 .reset()
                 .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
-            handle.tokens.clear();
+            if let Some(diarizer) = handle.diarizer.as_mut() {
+                diarizer.reset();
+            }
+            handle.fusion.reset();
+            handle.timed_tokens.clear();
             handle.text = empty_c_string();
+            handle.warning = None;
+            handle.segments_json = safe_c_string("[]");
             handle.state = SessionState::Started;
             Ok(CATCHER_OK)
         })
@@ -135,7 +174,18 @@ pub unsafe extern "C" fn catcher_push_audio(
                 .transcriber
                 .push_samples(samples)
                 .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
-            update_text(handle, tokens)
+            let has_new_tokens = !tokens.is_empty();
+            if has_new_tokens {
+                handle.fusion.push_tokens(&tokens);
+                handle.timed_tokens.extend(tokens);
+            }
+            push_diar_samples(handle, samples);
+            rebuild_strings(handle)?;
+            Ok(if has_new_tokens {
+                CATCHER_OK
+            } else {
+                CATCHER_NO_UPDATE
+            })
         })
     }
 }
@@ -159,8 +209,20 @@ pub unsafe extern "C" fn catcher_finish(handle: *mut CatcherHandle) -> i32 {
                 .transcriber
                 .finish()
                 .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
+            let has_new_tokens = !tokens.is_empty();
+            if has_new_tokens {
+                handle.fusion.push_tokens(&tokens);
+                handle.timed_tokens.extend(tokens);
+            }
+            finish_diar(handle);
+            handle.fusion.flush();
             handle.state = SessionState::Finished;
-            update_text(handle, tokens)
+            rebuild_strings(handle)?;
+            Ok(if has_new_tokens {
+                CATCHER_OK
+            } else {
+                CATCHER_NO_UPDATE
+            })
         })
     }
 }
@@ -178,6 +240,62 @@ pub unsafe extern "C" fn catcher_text(handle: *const CatcherHandle) -> *const c_
         return ptr::null();
     }
     match catch_unwind(AssertUnwindSafe(|| unsafe { (&*handle).text.as_ptr() })) {
+        Ok(pointer) => pointer,
+        Err(payload) => {
+            set_global_error(&panic_message(payload));
+            ptr::null()
+        }
+    }
+}
+
+/// Returns the current speaker segments as a UTF-8 JSON array owned by
+/// `handle` (`[]` when no diarization model was supplied to
+/// `catcher_create`).
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_create`. The
+/// returned pointer is invalidated by the next mutating call or destroy,
+/// exactly like `catcher_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_segments(handle: *const CatcherHandle) -> *const c_char {
+    if handle.is_null() {
+        set_global_error("catcher handle is null");
+        return ptr::null();
+    }
+    match catch_unwind(AssertUnwindSafe(|| unsafe {
+        (&*handle).segments_json.as_ptr()
+    })) {
+        Ok(pointer) => pointer,
+        Err(payload) => {
+            set_global_error(&panic_message(payload));
+            ptr::null()
+        }
+    }
+}
+
+/// Returns the current non-fatal diarization warning owned by `handle`, or
+/// null when there is none (e.g. no diarization model was supplied, or
+/// nothing has gone wrong yet).
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_create`. The
+/// returned pointer is invalidated by the next mutating call or destroy,
+/// exactly like `catcher_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_warning(handle: *const CatcherHandle) -> *const c_char {
+    if handle.is_null() {
+        set_global_error("catcher handle is null");
+        return ptr::null();
+    }
+    match catch_unwind(AssertUnwindSafe(|| unsafe {
+        (&*handle)
+            .warning
+            .as_ref()
+            .map(|warning| warning.as_ptr())
+            .unwrap_or(ptr::null())
+    })) {
         Ok(pointer) => pointer,
         Err(payload) => {
             set_global_error(&panic_message(payload));
@@ -226,22 +344,70 @@ pub unsafe extern "C" fn catcher_destroy(handle: *mut CatcherHandle) {
     }
 }
 
-fn update_text(handle: &mut CatcherHandle, tokens: Vec<TimedToken>) -> Result<i32, (i32, String)> {
-    if tokens.is_empty() {
-        return Ok(CATCHER_NO_UPDATE);
+/// Pushes `samples` into the diarizer, if one is still attached. A runtime
+/// diarization error demotes `diarizer` to `None` and records a warning;
+/// transcription is unaffected and the caller should treat this as
+/// non-fatal.
+fn push_diar_samples(handle: &mut CatcherHandle, samples: &[f32]) {
+    let Some(diarizer) = handle.diarizer.as_mut() else {
+        return;
+    };
+    match diarizer.push_samples(samples) {
+        Ok(frames) => {
+            if !frames.is_empty() {
+                handle.fusion.push_diar_frames(&frames);
+            }
+        }
+        Err(error) => {
+            handle.warning = Some(diarizer_disabled_warning(&error));
+            handle.diarizer = None;
+        }
     }
-    handle.tokens.extend(tokens);
-    let ids = handle
-        .tokens
-        .iter()
-        .map(|token| token.id)
-        .collect::<Vec<_>>();
-    let text = handle
+}
+
+/// Flushes the diarizer's trailing chunks, if one is still attached. Same
+/// non-fatal degrade-and-warn behavior as [`push_diar_samples`].
+fn finish_diar(handle: &mut CatcherHandle) {
+    let Some(diarizer) = handle.diarizer.as_mut() else {
+        return;
+    };
+    match diarizer.finish() {
+        Ok(frames) => {
+            if !frames.is_empty() {
+                handle.fusion.push_diar_frames(&frames);
+            }
+        }
+        Err(error) => {
+            handle.warning = Some(diarizer_disabled_warning(&error));
+            handle.diarizer = None;
+        }
+    }
+}
+
+/// Rebuilds `handle.text` (s2twp-converted full transcript) and
+/// `handle.segments_json` from the accumulated tokens/diarization frames.
+fn rebuild_strings(handle: &mut CatcherHandle) -> Result<(), (i32, String)> {
+    let ids: Vec<u32> = handle.timed_tokens.iter().map(|token| token.id).collect();
+    let decoded = handle
         .tokenizer
         .decode(&ids, true)
         .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
-    handle.text = safe_c_string(&text);
-    Ok(CATCHER_OK)
+    handle.text = safe_c_string(&opencc::to_traditional(&decoded));
+
+    let segments_json = if handle.diarization_requested {
+        let tokenizer = &handle.tokenizer;
+        let segments = handle.fusion.segments(|ids| {
+            tokenizer
+                .decode(ids, true)
+                .map(|decoded| opencc::to_traditional(&decoded))
+                .unwrap_or_default()
+        });
+        serde_json::to_string(&segments).expect("SpeakerSegment serialization cannot fail")
+    } else {
+        "[]".to_string()
+    };
+    handle.segments_json = safe_c_string(&segments_json);
+    Ok(())
 }
 
 unsafe fn with_handle_mut(
@@ -275,12 +441,28 @@ unsafe fn required_string(pointer: *const c_char, name: &str) -> Result<String, 
         .map_err(|_| format!("{name} is not valid UTF-8"))
 }
 
+unsafe fn optional_string(pointer: *const c_char, name: &str) -> Result<Option<String>, String> {
+    if pointer.is_null() {
+        return Ok(None);
+    }
+    unsafe { required_string(pointer, name) }.map(Some)
+}
+
 fn empty_c_string() -> CString {
     CString::new(Vec::new()).expect("empty C string is valid")
 }
 
 fn safe_c_string(message: &str) -> CString {
     CString::new(message.replace('\0', "�")).expect("NUL bytes were replaced")
+}
+
+/// Formats the warning stored when a diarizer degrades to `None` after a
+/// runtime error. Kept as one place so `catcher_warning`'s wording (see the
+/// header doc comment) stays in sync with what actually gets stored.
+fn diarizer_disabled_warning(error: &sortformer_mlx::model::ModelError) -> CString {
+    safe_c_string(&format!(
+        "diarization disabled after a runtime error: {error}"
+    ))
 }
 
 fn set_global_error(message: &str) {

@@ -31,7 +31,7 @@ public actor CatcherClient: CatcherServing {
     public init(modelDirectory: URL, language: String = "auto", lookahead: UInt32 = 3) throws {
         let pointer = modelDirectory.path.withCString { modelPath in
             language.withCString { languageCode in
-                catcher_create(modelPath, languageCode, lookahead)
+                catcher_create(modelPath, nil, languageCode, lookahead)
             }
         }
         guard let pointer else {
