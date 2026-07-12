@@ -36,3 +36,56 @@ fn one_second_of_audio_yields_100_normalized_frames() {
         );
     }
 }
+
+/// torch.stft's `center=True` convention pads the signal by `n_fft / 2` and,
+/// when `win_length < n_fft`, zero-pads the analysis window so it is
+/// *centered* within the `n_fft` FFT frame (offset `(n_fft - win_length) / 2`
+/// on each side). That centering makes frame `f`'s window centered exactly on
+/// original sample `f * hop_length`.
+///
+/// For a single impulse placed exactly on a hop boundary (`k = m * hop`), the
+/// two neighboring frames `m - 1` and `m + 1` sit at the same distance from
+/// the impulse and must see (approximately) the same Hann-window weight on
+/// it, so their mel energy should be roughly symmetric.
+///
+/// The buggy implementation instead left-aligns the 400-sample window inside
+/// the 512-sample FFT buffer (no centering offset), which shifts the
+/// effective analysis window 56 samples (3.5 ms) earlier. For an impulse on a
+/// hop boundary this makes frame `m - 1` fall almost entirely outside the
+/// (shifted) window while frame `m + 1` still catches a large fraction of it
+/// -- a strongly asymmetric response that this test would catch.
+#[test]
+fn impulse_on_hop_boundary_yields_symmetric_neighbor_energy() {
+    let config = SortformerConfig::from_json(FIXTURE).unwrap();
+    let frontend = MelFrontend::new(&config);
+
+    let hop_length = (0.01 * 16_000.0f64).round() as usize; // 160
+    let center_frame = 50usize;
+    let k = center_frame * hop_length; // 8000, far from either signal edge
+
+    let mut audio = vec![0.0f32; 16_000];
+    audio[k] = 1.0;
+
+    let frames = frontend.extract_normalized(&audio);
+    let left = center_frame - 1;
+    let right = center_frame + 1;
+
+    // L2 energy of the normalized mel vector, relative to the (near-zero)
+    // background frames, is our proxy for "how much of the impulse this
+    // frame's analysis window caught".
+    let energy = |frame: &[f32]| -> f32 { frame.iter().map(|value| value * value).sum() };
+    let left_energy = energy(&frames[left]);
+    let right_energy = energy(&frames[right]);
+
+    // Correctly centered: both neighbors are equidistant from the impulse,
+    // so their captured energy should be within the same order of
+    // magnitude (ratio close to 1). Left-aligned (buggy): frame `left`
+    // barely overlaps the shifted window while frame `right` catches most
+    // of it, driving the ratio toward zero.
+    let ratio = left_energy / right_energy;
+    assert!(
+        ratio > 0.4 && ratio < 2.5,
+        "expected roughly symmetric energy around frame {center_frame}: \
+         frame {left} energy {left_energy}, frame {right} energy {right_energy}, ratio {ratio}"
+    );
+}

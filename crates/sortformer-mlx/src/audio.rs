@@ -75,13 +75,19 @@ impl MelFrontend {
         } else {
             signal.len() / self.hop_length + 1
         };
+        // torch.stft's center=True convention (with win_length < n_fft) zero-pads the
+        // window so it is centered within the n_fft FFT frame, rather than left-aligned.
+        let window_offset = (self.n_fft - self.window_length) / 2;
         let mut output = Vec::with_capacity(frame_count);
         for frame in 0..frame_count {
             let start = frame * self.hop_length;
             let mut buffer = vec![Complex::new(0.0f32, 0.0f32); self.n_fft];
             for (index, weight) in window.iter().enumerate() {
-                let sample = padded.get(start + index).copied().unwrap_or(0.0);
-                buffer[index] = Complex::new(sample * weight, 0.0);
+                let sample = padded
+                    .get(start + window_offset + index)
+                    .copied()
+                    .unwrap_or(0.0);
+                buffer[window_offset + index] = Complex::new(sample * weight, 0.0);
             }
             fft.process(&mut buffer);
             let power: Vec<f32> = buffer[..bins]
