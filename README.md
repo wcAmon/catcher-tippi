@@ -33,6 +33,16 @@ Tippi performs this download automatically on first launch, verifies pinned
 SHA-256 hashes, and installs the model atomically under its sandboxed Application
 Support directory. The app contains no Hugging Face token.
 
+## Download the public diarization model
+
+The public Catcher diarization artifact is approximately 121 MiB and retains
+the upstream NVIDIA Open Model License and NVIDIA origin notices:
+
+```sh
+hf download wcamon/catcher-diar-mlx-int8 \
+  --local-dir catcher-diar-mlx-int8
+```
+
 ## Build and run Tippi
 
 ```sh
@@ -71,6 +81,15 @@ The CLI accepts mono 16 kHz PCM or float WAV. Tippi accepts the Mac's native
 microphone format and converts it to mono Float32 16 kHz with AVAudioConverter.
 Supported Catcher lookahead values are `0`, `3`, `6`, and `13`; default `3`
 corresponds to 320 ms algorithmic latency.
+
+`catcher diarize` runs the Streaming Sortformer speaker diarizer over a WAV
+file and prints a speaker timeline:
+
+```sh
+target/release/catcher diarize \
+  --model catcher-diar-mlx-int8 \
+  --audio meeting.wav
+```
 
 ## Catcher C ABI
 
@@ -122,8 +141,10 @@ Measurements are hardware- and workload-specific.
 - the INT8 artifact has exact-token reference coverage but not yet a complete
   multilingual WER evaluation.
 
-Model weights remain governed by OpenMDW-1.1. Catcher and Tippi are independent
-community software and are not affiliated with or endorsed by NVIDIA.
+The transcription model weights remain governed by OpenMDW-1.1 and the
+diarization model weights by the NVIDIA Open Model License. Catcher and Tippi
+are independent community software and are not affiliated with or endorsed by
+NVIDIA.
 
 See the [Catcher/Tippi design](docs/plans/2026-07-11-catcher-tippi-design.md) and
 [implementation plan](docs/superpowers/plans/2026-07-11-catcher-tippi.md).
