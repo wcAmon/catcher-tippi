@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod backend;
+pub mod fusion;
 pub mod model;
 pub mod opencc;
 pub mod tokenizer;
