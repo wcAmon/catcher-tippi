@@ -1,0 +1,76 @@
+{
+  "turns": [
+    {
+      "speaker": 0,
+      "start_s": 0.0,
+      "end_s": 2.386
+    },
+    {
+      "speaker": 1,
+      "start_s": 2.686,
+      "end_s": 6.149
+    },
+    {
+      "speaker": 0,
+      "start_s": 6.55,
+      "end_s": 8.809
+    },
+    {
+      "speaker": 1,
+      "start_s": 9.309,
+      "end_s": 13.949
+    },
+    {
+      "speaker": 0,
+      "start_s": 14.549,
+      "end_s": 16.831
+    },
+    {
+      "speaker": 1,
+      "start_s": 17.531,
+      "end_s": 22.392
+    },
+    {
+      "speaker": 0,
+      "start_s": 22.992,
+      "end_s": 25.315
+    },
+    {
+      "speaker": 1,
+      "start_s": 25.815,
+      "end_s": 28.525
+    },
+    {
+      "speaker": 0,
+      "start_s": 28.925,
+      "end_s": 31.804
+    },
+    {
+      "speaker": 1,
+      "start_s": 32.104,
+      "end_s": 34.339
+    },
+    {
+      "speaker": 0,
+      "start_s": 34.739,
+      "end_s": 36.924
+    },
+    {
+      "speaker": 1,
+      "start_s": 37.424,
+      "end_s": 40.617
+    },
+    {
+      "speaker": 0,
+      "start_s": 41.217,
+      "end_s": 43.351
+    },
+    {
+      "speaker": 1,
+      "start_s": 44.051,
+      "end_s": 47.471
+    }
+  ],
+  "source": "AISHELL/AISHELL-3",
+  "license": "Apache-2.0 (https://huggingface.co/datasets/AISHELL/AISHELL-3)"
+}
