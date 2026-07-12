@@ -1,8 +1,10 @@
 //! MLX-backed Sortformer model modules.
 
 mod encoder;
+mod transformer;
 
 pub use encoder::{Encoder, EncoderTrace};
+pub use transformer::Diarizer;
 
 /// Errors produced by Sortformer model layers.
 #[derive(Debug, thiserror::Error)]
