@@ -32,6 +32,10 @@ pub struct Encoder {
 }
 
 /// Intermediate tensors used for parity validation and diagnostics.
+///
+/// Phase-2 surface: not wired into `Diarizer::diarize` today, but retained
+/// for NeMo parity debugging and as the hook a future streaming/incremental
+/// encoder would use to inspect per-block state.
 #[derive(Debug, Clone)]
 pub struct EncoderTrace {
     /// `encoder.pre_encode` output before the `sqrt(d_model)` input scaling.
@@ -71,6 +75,9 @@ impl Encoder {
     }
 
     /// Encodes and records every intermediate block output.
+    ///
+    /// Phase-2 surface: exists for parity diagnostics against NeMo block
+    /// outputs, not for production diarization inference.
     pub fn forward_trace(&self, mel_frames: &[Vec<f32>]) -> ModelResult<EncoderTrace> {
         let mut trace = EncoderTrace {
             subsampling: Tensor3 {

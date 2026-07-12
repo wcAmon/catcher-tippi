@@ -6,7 +6,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-half = "2"
 mlx-rs = { version = "0.25.3", default-features = false, features = ["accelerate", "metal", "safetensors"] }
 nemotron-mlx = { path = "../nemotron-mlx" }
 rustfft = "6"
@@ -15,5 +14,4 @@ serde_json = "1"
 thiserror = "2"
 
 [dev-dependencies]
-approx = "0.5"
 hound = "3"

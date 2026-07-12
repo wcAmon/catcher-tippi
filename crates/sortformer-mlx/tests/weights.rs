@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use nemotron_mlx::weights::{Storage, TensorTransform};
-use sortformer_mlx::weights::specs_from_inventory;
+use nemotron_mlx::weights::{ArtifactError, Storage, TensorTransform};
+use sortformer_mlx::weights::{convert_model, specs_from_inventory};
 
 fn inventory(entries: &[(&str, &[usize])]) -> BTreeMap<String, Vec<usize>> {
     entries
@@ -84,5 +84,18 @@ fn real_inventory_produces_a_plan_covering_every_tensor() {
     assert!(
         int8 > 100,
         "expected the conformer stack quantized, got {int8}"
+    );
+}
+
+#[test]
+fn convert_model_rejects_zero_group_size_before_touching_the_filesystem() {
+    // The nonexistent source path proves the group_size == 0 guard runs
+    // before any file I/O: if the guard were missing or reordered after
+    // `read_inventory`, this would fail with an I/O error instead.
+    let error = convert_model("/nonexistent/does-not-exist.safetensors", "/tmp/unused", 0)
+        .expect_err("group_size 0 must be rejected");
+    assert!(
+        matches!(error, ArtifactError::InvalidQuantization(_)),
+        "expected InvalidQuantization, got {error:?}"
     );
 }

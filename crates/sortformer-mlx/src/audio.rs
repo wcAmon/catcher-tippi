@@ -44,6 +44,11 @@ impl MelFrontend {
     }
 
     /// Extracts log-mel frames and applies per-feature normalization.
+    ///
+    /// Phase-2 surface: the checkpoint's preprocessor uses `normalize: "NA"`,
+    /// so `Diarizer` calls `extract` directly today; this is kept as the
+    /// entry point a future per-feature-normalized streaming frontend would
+    /// use, and is exercised by the audio parity tests.
     pub fn extract_normalized(&self, audio: &[f32]) -> Vec<Vec<f32>> {
         let mut frames = self.extract(audio);
         normalize_per_feature(&mut frames);

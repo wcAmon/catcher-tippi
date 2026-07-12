@@ -352,7 +352,7 @@ pub struct Diarizer {
     layers: Vec<TransformerLayer>,
     head: SigmoidHead,
     transformer_dim: usize,
-    num_speakers: usize,
+    frame_ms: u64,
 }
 
 impl Diarizer {
@@ -373,12 +373,20 @@ impl Diarizer {
                 config.transformer_dim, config.transformer_heads
             )));
         }
+        if config.num_speakers != 4 {
+            return Err(ModelError::InvalidShape(format!(
+                "diarizer expects 4 speakers, checkpoint has {}",
+                config.num_speakers
+            )));
+        }
         let encoder = Encoder::from_artifact(artifact, config)?;
         let encoder_proj = Linear::from_artifact(artifact, "sortformer_modules.encoder_proj")?;
         let layers = (0..config.transformer_layers)
             .map(|layer| TransformerLayer::from_artifact(artifact, layer, config.transformer_heads))
             .collect::<ModelResult<Vec<_>>>()?;
         let head = SigmoidHead::from_artifact(artifact)?;
+        let frame_ms =
+            (config.hop_seconds * config.subsampling_factor as f64 * 1_000.0).round() as u64;
         Ok(Self {
             frontend: MelFrontend::new(config),
             encoder,
@@ -386,8 +394,14 @@ impl Diarizer {
             layers,
             head,
             transformer_dim: config.transformer_dim,
-            num_speakers: config.num_speakers,
+            frame_ms,
         })
+    }
+
+    /// Output frame duration in milliseconds: `hop_seconds * subsampling_factor * 1000`,
+    /// rounded. 80 ms for the v2.1 checkpoint (10 ms hop, 8x subsampling).
+    pub fn frame_ms(&self) -> u64 {
+        self.frame_ms
     }
 
     /// Diarizes raw 16 kHz mono audio into per-frame speaker probabilities.
@@ -395,12 +409,9 @@ impl Diarizer {
         let hidden = self.forward_hidden(audio)?;
         let frames = hidden.shape[1];
         let probabilities = self.head.forward(&hidden.values, frames)?;
-        if self.num_speakers != 4 {
-            return Err(ModelError::InvalidShape(format!(
-                "diarizer expects 4 speakers, checkpoint has {}",
-                self.num_speakers
-            )));
-        }
+        // `num_speakers == 4` is guaranteed by `from_parts`, which rejects any
+        // other checkpoint at load time, so this `Vec<[f32; 4]>` contract
+        // always holds here.
         Ok(probabilities
             .chunks_exact(4)
             .map(|frame| [frame[0], frame[1], frame[2], frame[3]])

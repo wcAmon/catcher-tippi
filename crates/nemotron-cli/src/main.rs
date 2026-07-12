@@ -107,13 +107,13 @@ fn run(arguments: Arguments) -> Result<(), Box<dyn std::error::Error>> {
             let samples = read_wav(&audio)?;
             let diarizer = sortformer_mlx::model::Diarizer::from_artifact_dir(&model)?;
             let probabilities = diarizer.diarize(&samples)?;
-            const FRAME_MS: u64 = 80;
-            let min_frames = (min_duration_ms / FRAME_MS).max(1) as usize;
+            let frame_ms = diarizer.frame_ms();
+            let min_frames = min_duration_ms.div_ceil(frame_ms).max(1) as usize;
             let segments = sortformer_mlx::segments::segments_from_probs(
                 &probabilities,
                 threshold,
                 min_frames,
-                FRAME_MS,
+                frame_ms,
             );
             if json {
                 println!("{}", serde_json::to_string(&segments)?);

@@ -861,8 +861,6 @@ dependencies = [
 name = "sortformer-mlx"
 version = "0.1.0"
 dependencies = [
- "approx",
- "half",
  "hound",
  "mlx-rs",
  "nemotron-mlx",

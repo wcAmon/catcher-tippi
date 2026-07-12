@@ -5,7 +5,7 @@ use std::path::Path;
 
 use mlx_rs::Array;
 use nemotron_mlx::weights::{
-    ArtifactResult, Storage, TensorSpec, TensorTransform, convert_tensors,
+    ArtifactError, ArtifactResult, Storage, TensorSpec, TensorTransform, convert_tensors,
     copy_model_companion_files,
 };
 
@@ -67,6 +67,11 @@ pub fn convert_model(
     output: impl AsRef<Path>,
     group_size: usize,
 ) -> ArtifactResult<()> {
+    if group_size == 0 {
+        return Err(ArtifactError::InvalidQuantization(
+            "group_size must be nonzero".to_string(),
+        ));
+    }
     let source = source.as_ref();
     let inventory = read_inventory(source)?;
     let mut specs = specs_from_inventory(&inventory);
