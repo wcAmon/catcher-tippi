@@ -37,6 +37,36 @@ fn one_second_of_audio_yields_100_normalized_frames() {
     }
 }
 
+/// `extract` must emit exactly `floor(T / hop)` frames, matching NeMo's
+/// `get_seq_len` (features.py:403-407). `torch.stft(center=True)` produces
+/// `floor(T/hop) + 1` columns, but NeMo's reported sequence length -- and thus
+/// what the model consumes -- drops the trailing column. This pins that
+/// formula for a length that is NOT a hop multiple, so `floor(T/hop) + 1`
+/// (the old buggy count) is unambiguously distinct from `floor(T/hop)`.
+#[test]
+fn extract_emits_floor_of_length_over_hop_frames() {
+    let config = SortformerConfig::from_json(FIXTURE).unwrap();
+    let frontend = MelFrontend::new(&config);
+    let hop_length = (config.hop_seconds * config.sample_rate as f64).round() as usize; // 160
+
+    // 1680 = 10 * 160 + 80: floor(1680/160) = 10, but floor + 1 = 11.
+    let length = 10 * hop_length + hop_length / 2;
+    let audio: Vec<f32> = (0..length)
+        .map(|index| (index as f32 * 0.03).sin() * 0.2)
+        .collect();
+
+    let frames = frontend.extract(&audio);
+    let expected = length / hop_length; // floor division == floor(T/hop) == 10
+    assert_eq!(
+        frames.len(),
+        expected,
+        "expected floor(T/hop) = {expected} frames, got {}",
+        frames.len()
+    );
+    // Guard the test's own premise: the old `floor(T/hop) + 1` count differs.
+    assert_ne!(frames.len(), expected + 1);
+}
+
 /// torch.stft's `center=True` convention pads the signal by `n_fft / 2` and,
 /// when `win_length < n_fft`, zero-pads the analysis window so it is
 /// *centered* within the `n_fft` FFT frame (offset `(n_fft - win_length) / 2`

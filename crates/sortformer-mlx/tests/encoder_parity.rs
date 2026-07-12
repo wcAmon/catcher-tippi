@@ -93,8 +93,8 @@ fn conversation_audio() -> Vec<f32> {
         .collect()
 }
 
-/// Asserts `rms(actual - expected) / rms(expected)` is below `tolerance`.
-fn assert_relative_rms_below(actual: &[f32], expected: &[f32], tolerance: f64) {
+/// Returns `rms(actual - expected) / rms(expected)`.
+fn relative_rms(actual: &[f32], expected: &[f32]) -> f64 {
     assert_eq!(
         actual.len(),
         expected.len(),
@@ -102,12 +102,13 @@ fn assert_relative_rms_below(actual: &[f32], expected: &[f32], tolerance: f64) {
         actual.len(),
         expected.len()
     );
-    let diff: Vec<f32> = actual
-        .iter()
-        .zip(expected)
-        .map(|(a, e)| a - e)
-        .collect();
-    let relative = rms(&diff) / rms(expected).max(1e-9);
+    let diff: Vec<f32> = actual.iter().zip(expected).map(|(a, e)| a - e).collect();
+    rms(&diff) / rms(expected).max(1e-9)
+}
+
+/// Asserts `rms(actual - expected) / rms(expected)` is below `tolerance`.
+fn assert_relative_rms_below(actual: &[f32], expected: &[f32], tolerance: f64) {
+    let relative = relative_rms(actual, expected);
     assert!(
         relative < tolerance,
         "relative rms {relative} exceeds tolerance {tolerance}"
@@ -155,7 +156,12 @@ fn mel_features_match_nemo_preprocessor() {
     let frames = MelFrontend::new(&config).extract(&fixture_audio());
     // Reference layout is [1, n_mels, frames]; ours is [frames][n_mels].
     assert_eq!(reference.features.shape[1], config.n_mels);
-    assert_eq!(reference.features.shape[2], frames.len());
+    // NeMo's `torch.stft(center=True)` yields `floor(T/hop) + 1` columns, so
+    // the captured raw-preprocessor tensor has one extra trailing column. NeMo
+    // reports `get_seq_len = floor(T/hop)` and the model consumes only that
+    // many frames, which is exactly what `extract` now emits, so our frame
+    // count is the reference's minus that dropped trailing column.
+    assert_eq!(reference.features.shape[2], frames.len() + 1);
     // Reference `first` walks mel bin 0 across time.
     let bin0: Vec<f32> = frames.iter().map(|frame| frame[0]).take(64).collect();
     let flat: Vec<f32> = frames.iter().flatten().copied().collect();
@@ -177,21 +183,32 @@ fn pre_encode_matches_nemo_streaming_chunk0() {
     assert_eq!(ours.shape[2], reference.chunk0_pre_encode.dim);
     let dim = reference.chunk0_pre_encode.dim;
 
-    // Output frame 0 sits at the utterance boundary, where the subsampling
-    // conv's left zero-padding meets the frontend's signal-start mel frames.
-    // Our MelFrontend differs from NeMo's exactly there (we emit one more mel
-    // frame overall: 4748 vs 4747), so frame 0 alone carries ~26% relative rms
-    // while the interior frames 1..12 all match within int8 tolerance (<2.2%).
-    // That boundary discrepancy is a frontend concern, not the encoder split:
-    // the split is proven faithful by the offline `encoder_out` parity test and
-    // by whole-tensor rms agreeing to 0.1% (18.81 vs 18.79). Gate the interior
-    // frames tightly (the real split check) and the full tensor loosely.
+    // Task 5b aligned the MelFrontend's boundary behavior with NeMo: it now
+    // zero-pads (`torch.stft(center=True, pad_mode="constant")`) instead of
+    // reflecting, and emits `floor(T/hop)` frames. That makes mel frame 0 match
+    // NeMo bit-for-bit, so pre-encode output frame 0 (the utterance boundary,
+    // where the subsampling conv's left zero-padding meets the signal-start mel
+    // frames) now agrees within int8 tolerance. Restore the plan's original
+    // whole-tensor gate (<= 5% relative rms) and additionally keep the tighter
+    // interior gate (frames 1.., <= 3%) as a regression check on the split.
+    let full_rel = relative_rms(&ours.values, &reference.chunk0_pre_encode.values);
+    let interior_rel = relative_rms(
+        &ours.values[dim..],
+        &reference.chunk0_pre_encode.values[dim..],
+    );
+    let frame0_rel = relative_rms(
+        &ours.values[..dim],
+        &reference.chunk0_pre_encode.values[..dim],
+    );
+    eprintln!(
+        "pre_encode chunk0: full_rel_rms={full_rel:.5} interior_rel_rms={interior_rel:.5} frame0_rel_rms={frame0_rel:.5}"
+    );
     assert_relative_rms_below(
         &ours.values[dim..],
         &reference.chunk0_pre_encode.values[dim..],
         0.03,
     );
-    assert_relative_rms_below(&ours.values, &reference.chunk0_pre_encode.values, 0.06);
+    assert_relative_rms_below(&ours.values, &reference.chunk0_pre_encode.values, 0.05);
 }
 
 #[test]

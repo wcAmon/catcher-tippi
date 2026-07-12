@@ -67,9 +67,14 @@ impl MelFrontend {
             signal.push(sample - self.preemphasis * previous);
             previous = sample;
         }
-        // Center-padded framing (reflect), Hann window, rfft power, mel, log.
+        // Center-padded framing, Hann window, rfft power, mel, log. NeMo's
+        // `torch.stft(center=True, pad_mode="constant")` zero-pads the signal
+        // by `n_fft / 2` on each side (features.py:377-386), so we pad with
+        // zeros rather than reflecting. The trailing pad is supplied by the
+        // `unwrap_or(0.0)` in the framing loop below.
         let pad = self.n_fft / 2;
-        let padded = reflect_pad(&signal, pad);
+        let mut padded = vec![0.0f32; pad];
+        padded.extend_from_slice(&signal);
         // NeMo builds the window with torch.hann_window(win_length,
         // periodic=False), i.e. the symmetric convention dividing by N - 1.
         let window: Vec<f32> = (0..self.window_length)
@@ -82,10 +87,15 @@ impl MelFrontend {
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(self.n_fft);
         let bins = self.n_fft / 2 + 1;
+        // NeMo keeps `get_seq_len = floor((T + 2*(n_fft/2) - n_fft) / hop)`
+        // frames (features.py:403-407). `torch.stft(center=True)` produces
+        // `floor(T/hop) + 1` columns, but NeMo's reported sequence length drops
+        // the trailing column, so we emit exactly `floor(T/hop)` frames.
+        let pad_amount = (self.n_fft / 2) * 2;
         let frame_count = if signal.is_empty() {
             0
         } else {
-            signal.len() / self.hop_length + 1
+            (signal.len() + pad_amount).saturating_sub(self.n_fft) / self.hop_length
         };
         // torch.stft's center=True convention (with win_length < n_fft) zero-pads the
         // window so it is centered within the n_fft FFT frame, rather than left-aligned.
@@ -122,19 +132,6 @@ impl MelFrontend {
         }
         output
     }
-}
-
-fn reflect_pad(signal: &[f32], pad: usize) -> Vec<f32> {
-    let mut padded = Vec::with_capacity(signal.len() + 2 * pad);
-    for index in (1..=pad).rev() {
-        padded.push(signal.get(index).copied().unwrap_or(0.0));
-    }
-    padded.extend_from_slice(signal);
-    for index in 0..pad {
-        let source = signal.len().saturating_sub(2 + index);
-        padded.push(signal.get(source).copied().unwrap_or(0.0));
-    }
-    padded
 }
 
 fn normalize_per_feature(frames: &mut [Vec<f32>]) {
