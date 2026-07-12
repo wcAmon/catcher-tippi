@@ -43,8 +43,9 @@ impl StreamingConfig {
     /// AOSC hyper-parameters are the checkpoint's `model_config.yaml`
     /// (`streaming` section); the low-latency buffer geometry is the design's
     /// "chunk 6 frames, right context 7" setting (~1.04 s latency). `emb_dim`
-    /// is `fc_d_model` (pre-encode output width). Task 7 confirms `fifo_len` /
-    /// `update_period` against the NeMo-generated fixture.
+    /// is `fc_d_model` (pre-encode output width). `update_period` 188 matches
+    /// the venv-effective `spkcache_update_period` (the NeMo demo's 144 targets
+    /// a `spkcache_refresh_rate` attribute absent in NeMo 2.7.3).
     pub fn low_latency_v2() -> Self {
         StreamingConfig {
             chunk_len: 6,
@@ -52,7 +53,7 @@ impl StreamingConfig {
             right_context: 7,
             fifo_len: 188,
             spkcache_len: 188,
-            update_period: 144,
+            update_period: 188,
             sil_frames_per_spk: 3,
             scores_boost_latest: 0.05,
             sil_threshold: 0.2,
