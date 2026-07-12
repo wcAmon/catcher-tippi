@@ -7,9 +7,9 @@
 //! BatchNorm. Tensor names follow `sortformer_inventory.json` exactly.
 
 use mlx_rs::Array;
+use mlx_rs::ops::indexing::TryIndexOp;
 use nemotron_mlx::model::{
     QuantizedLinear, Tensor3, Tensor4, channel_frequency_flatten, relative_position_encoding,
-    relative_shift,
 };
 use nemotron_mlx::weights::{Artifact, ArtifactError};
 
@@ -523,24 +523,8 @@ impl SelfAttention {
         let content = q.add(&bias_u)?.matmul(k.transpose_axes(&[0, 2, 1])?)?;
         // Positional scores (q + v)·pᵀ -> raw [H, T, P], then per-head shift.
         let positional = q.add(&bias_v)?.matmul(p.transpose_axes(&[0, 2, 1])?)?;
-        positional.eval()?;
-        let positional = positional.try_as_slice::<f32>()?;
-
-        // `relative_shift` is a cheap CPU reindex; apply it per head and keep
-        // only the first `frames` columns to rebuild the [H, T, T] score block.
-        let mut shifted = vec![0.0f32; self.heads * frames * frames];
-        for head in 0..self.heads {
-            let raw =
-                &positional[head * frames * position_frames..(head + 1) * frames * position_frames];
-            let head_shift = relative_shift(raw, frames, position_frames)?;
-            for query in 0..frames {
-                let source = &head_shift[query * position_frames..query * position_frames + frames];
-                let destination = &mut shifted
-                    [(head * frames + query) * frames..(head * frames + query + 1) * frames];
-                destination.copy_from_slice(source);
-            }
-        }
-        let shifted = Array::from_slice(&shifted, &[heads, frames_i, frames_i]);
+        // Transformer-XL relative shift, entirely on GPU: no CPU round-trip.
+        let shifted = gpu_relative_shift(&positional, heads, frames_i, position_frames as i32)?;
 
         // (content + shifted) * scale, softmax over keys, then × v.
         let scores = content.add(&shifted)?.multiply(Array::from_f32(scale))?;
@@ -554,6 +538,28 @@ impl SelfAttention {
             .linear_out
             .forward_f32(attended.try_as_slice::<f32>()?, frames)?)
     }
+}
+
+/// Transformer-XL relative shift of raw positional scores, entirely on GPU.
+///
+/// `positional` is `[heads, frames, position_frames]` (P = 2·frames − 1). The
+/// classic pad-and-reshape trick reproduces the scalar CPU `relative_shift`
+/// bit-for-bit (see the `gpu_relative_shift_matches_scalar` unit test) while
+/// avoiding a per-layer, per-chunk GPU→CPU round-trip: pad one zero column on
+/// the left of the last axis, flatten, drop the first `frames` scalars,
+/// reshape back to `[heads, frames, P]`, and slice the first `frames` columns
+/// to rebuild the `[heads, frames, frames]` score block.
+fn gpu_relative_shift(
+    positional: &Array,
+    heads: i32,
+    frames: i32,
+    position_frames: i32,
+) -> ModelResult<Array> {
+    let padded = mlx_rs::ops::pad(positional, &[(0, 0), (0, 0), (1, 0)], None, None)?;
+    let flat = padded.reshape(&[heads, frames * (position_frames + 1)])?;
+    let dropped = flat.try_index((.., frames..))?;
+    let shifted_full = dropped.reshape(&[heads, frames, position_frames])?;
+    Ok(shifted_full.try_index((.., .., 0..frames))?)
 }
 
 /// Conformer convolution module with full-context symmetric padding.
@@ -715,5 +721,67 @@ impl ConformerBlock {
         add_in_place(&mut hidden, &feed_forward2, 0.5);
 
         self.norm_out.forward(&hidden, frames)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nemotron_mlx::model::relative_shift;
+
+    /// The GPU pad-and-reshape relative shift must reproduce the scalar CPU
+    /// `relative_shift` oracle exactly (up to F32 identity — no arithmetic, only
+    /// gather/reshape) for the streaming window geometry (P = 2·frames − 1) and
+    /// several head/frame sizes.
+    #[test]
+    fn gpu_relative_shift_matches_scalar() {
+        for &(heads, frames) in &[(1usize, 1usize), (2, 3), (8, 5), (4, 13)] {
+            let position_frames = 2 * frames - 1;
+            // Deterministic pseudo-random raw positional scores [H, T, P].
+            let mut raw = vec![0.0f32; heads * frames * position_frames];
+            let mut seed: u32 = 0x1234_5678;
+            for value in raw.iter_mut() {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *value = (seed >> 8) as f32 / (1u32 << 24) as f32 - 0.5;
+            }
+
+            // Scalar oracle: per-head shift, keep the first `frames` columns.
+            let mut expected = vec![0.0f32; heads * frames * frames];
+            for head in 0..heads {
+                let head_raw = &raw
+                    [head * frames * position_frames..(head + 1) * frames * position_frames];
+                let head_shift = relative_shift(head_raw, frames, position_frames).unwrap();
+                for query in 0..frames {
+                    let source =
+                        &head_shift[query * position_frames..query * position_frames + frames];
+                    expected[(head * frames + query) * frames..(head * frames + query + 1) * frames]
+                        .copy_from_slice(source);
+                }
+            }
+
+            // GPU path.
+            let positional = Array::from_slice(
+                &raw,
+                &[heads as i32, frames as i32, position_frames as i32],
+            );
+            let shifted = gpu_relative_shift(
+                &positional,
+                heads as i32,
+                frames as i32,
+                position_frames as i32,
+            )
+            .unwrap();
+            // `gpu_relative_shift` returns a strided view (correct under the
+            // downstream elementwise `add`, which respects strides). Force a
+            // contiguous copy so `try_as_slice` reads the logical data.
+            let shifted = shifted.add(Array::from_f32(0.0)).unwrap();
+            shifted.eval().unwrap();
+            let actual = shifted.try_as_slice::<f32>().unwrap();
+
+            assert_eq!(
+                actual, expected,
+                "gpu relative shift mismatch for heads={heads} frames={frames}"
+            );
+        }
     }
 }

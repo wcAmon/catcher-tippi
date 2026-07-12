@@ -42,8 +42,13 @@ struct Linear {
 enum LinearKind {
     /// INT8 affine weights via the shared `nemotron-mlx` quantized matmul.
     Quantized(QuantizedLinear),
-    /// F16 weights loaded as row-major `[output_dims, input_dims]` F32.
-    Float { weight: Vec<f32>, bias: Vec<f32> },
+    /// F16 weights run as an F32 MLX matmul on the GPU. The 192-wide
+    /// Transformer/head matrices fall below the INT8 quantization threshold, so
+    /// they stay F16 in the artifact; the matmul is dominated by these and used
+    /// once per frame per layer per streaming chunk, so it runs on-device
+    /// (`x · Wᵀ + b`) rather than as a scalar CPU loop. `weight_t` is the
+    /// pre-transposed `[input_dims, output_dims]` weight.
+    Float { weight_t: Array, bias: Array },
 }
 
 impl Linear {
@@ -75,7 +80,18 @@ impl Linear {
                         "linear {prefix} weight/bias inconsistent with [{output_dims},{input_dims}]"
                     )));
                 }
-                LinearKind::Float { weight, bias }
+                // Row-major `[output_dims, input_dims]` -> transposed
+                // `[input_dims, output_dims]` so `x · Wᵀ` is a plain matmul.
+                let weight_t = Array::from_slice(
+                    &weight,
+                    &[output_dims as i32, input_dims as i32],
+                )
+                .transpose_axes(&[1, 0])?;
+                weight_t.eval()?;
+                LinearKind::Float {
+                    weight_t,
+                    bias: Array::from_slice(&bias, &[output_dims as i32]),
+                }
             }
             other => {
                 return Err(ModelError::InvalidShape(format!(
@@ -101,23 +117,11 @@ impl Linear {
         }
         match &self.kind {
             LinearKind::Quantized(inner) => Ok(inner.forward_f32(input, rows)?),
-            LinearKind::Float { weight, bias } => {
-                let mut output = vec![0.0; rows * self.output_dims];
-                for row in 0..rows {
-                    let source = &input[row * self.input_dims..(row + 1) * self.input_dims];
-                    let destination =
-                        &mut output[row * self.output_dims..(row + 1) * self.output_dims];
-                    for (out_index, slot) in destination.iter_mut().enumerate() {
-                        let weights =
-                            &weight[out_index * self.input_dims..(out_index + 1) * self.input_dims];
-                        let mut accumulator = bias[out_index];
-                        for (value, weight) in source.iter().zip(weights) {
-                            accumulator += value * weight;
-                        }
-                        *slot = accumulator;
-                    }
-                }
-                Ok(output)
+            LinearKind::Float { weight_t, bias } => {
+                let x = Array::from_slice(input, &[rows as i32, self.input_dims as i32]);
+                let y = x.matmul(weight_t)?.add(bias)?;
+                y.eval()?;
+                Ok(y.try_as_slice::<f32>()?.to_vec())
             }
         }
     }
