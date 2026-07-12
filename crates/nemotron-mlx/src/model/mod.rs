@@ -20,7 +20,7 @@ pub use layers::{
 pub use prompt::{LanguagePrompt, PromptProjector};
 pub use rnnt::{
     GreedyRnnt, JointNetwork, LstmCell, LstmState, PredictionNetwork, PredictionState,
-    QuantizedEmbedding, StreamingRnntDecoder,
+    QuantizedEmbedding, StreamingRnntDecoder, TimedToken,
 };
 pub use stream::{AudioChunk, AudioChunkScheduler, StreamingTranscriber};
 

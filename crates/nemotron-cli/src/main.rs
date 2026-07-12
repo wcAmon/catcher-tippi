@@ -79,7 +79,8 @@ fn run(arguments: Arguments) -> Result<(), Box<dyn std::error::Error>> {
             let samples = read_wav(&audio)?;
             let artifact = Artifact::load(&model)?;
             let mut transcriber = StreamingTranscriber::new(&artifact, &language, lookahead)?;
-            let token_ids = transcriber.transcribe_samples(&samples)?;
+            let tokens = transcriber.transcribe_samples(&samples)?;
+            let token_ids = tokens.iter().map(|token| token.id).collect::<Vec<_>>();
             let tokenizer_path = tokenizer.unwrap_or_else(|| model.join("tokenizer.json"));
             let tokenizer = Tokenizer::from_json(tokenizer_path, 0, 13_087)?;
             let text = tokenizer.decode(&token_ids, true)?;

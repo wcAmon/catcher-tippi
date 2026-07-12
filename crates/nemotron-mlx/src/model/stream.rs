@@ -2,7 +2,7 @@ use crate::{audio::LogMelFrontend, weights::Artifact};
 
 use super::{
     EncoderConfig, LanguagePrompt, ModelError, ModelResult, PredictionState, StreamingChunkPlan,
-    StreamingEncoder, StreamingEncoderCache, StreamingRnntDecoder, Tensor3,
+    StreamingEncoder, StreamingEncoderCache, StreamingRnntDecoder, Tensor3, TimedToken,
 };
 
 /// One exact audio window ready for the Nemotron log-mel frontend.
@@ -133,6 +133,7 @@ pub struct StreamingTranscriber {
     decoder_state: PredictionState,
     prompt: LanguagePrompt,
     scheduler: AudioChunkScheduler,
+    frames_seen: u64,
 }
 
 impl StreamingTranscriber {
@@ -151,11 +152,13 @@ impl StreamingTranscriber {
             decoder_state,
             prompt: LanguagePrompt::from_code(language)?,
             scheduler: AudioChunkScheduler::new(plan),
+            frames_seen: 0,
         })
     }
 
-    /// Appends arbitrary mono 16 kHz samples and returns newly emitted token IDs.
-    pub fn push_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<u32>> {
+    /// Appends arbitrary mono 16 kHz samples and returns newly emitted tokens
+    /// carrying their GLOBAL utterance frame index.
+    pub fn push_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<TimedToken>> {
         let mut output = Vec::new();
         for chunk in self.scheduler.push(audio)? {
             output.extend(self.decode_chunk(chunk)?);
@@ -163,8 +166,8 @@ impl StreamingTranscriber {
         Ok(output)
     }
 
-    /// Pads the last incomplete window and returns its newly emitted token IDs.
-    pub fn finish(&mut self) -> ModelResult<Vec<u32>> {
+    /// Pads the last incomplete window and returns its newly emitted tokens.
+    pub fn finish(&mut self) -> ModelResult<Vec<TimedToken>> {
         let Some(chunk) = self.scheduler.finish()? else {
             return Ok(Vec::new());
         };
@@ -176,17 +179,18 @@ impl StreamingTranscriber {
         self.encoder_cache = self.encoder.new_cache();
         self.decoder_state = self.decoder.new_state();
         self.scheduler.reset();
+        self.frames_seen = 0;
         Ok(())
     }
 
-    /// Transcribes one complete mono 16 kHz utterance and returns non-blank token IDs.
-    pub fn transcribe_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<u32>> {
+    /// Transcribes one complete mono 16 kHz utterance and returns non-blank tokens.
+    pub fn transcribe_samples(&mut self, audio: &[f32]) -> ModelResult<Vec<TimedToken>> {
         let mut output = self.push_samples(audio)?;
         output.extend(self.finish()?);
         Ok(output)
     }
 
-    fn decode_chunk(&mut self, chunk: AudioChunk) -> ModelResult<Vec<u32>> {
+    fn decode_chunk(&mut self, chunk: AudioChunk) -> ModelResult<Vec<TimedToken>> {
         let features = self.frontend.extract(&chunk.samples, chunk.center);
         self.validate_feature_count(&features, chunk.mel_frames)?;
         self.decode_features(features)
@@ -202,7 +206,7 @@ impl StreamingTranscriber {
         Ok(())
     }
 
-    fn decode_features(&mut self, features: Vec<Vec<f32>>) -> ModelResult<Vec<u32>> {
+    fn decode_features(&mut self, features: Vec<Vec<f32>>) -> ModelResult<Vec<TimedToken>> {
         let time = features.len();
         let encoded = self.encoder.encode_chunk(
             &Tensor3 {
@@ -212,8 +216,19 @@ impl StreamingTranscriber {
             self.prompt,
             &mut self.encoder_cache,
         )?;
-        self.decoder
-            .decode_frames(&encoded, &mut self.decoder_state)
+        let encoded_frames = encoded.shape[1] as u64;
+        let offset = self.frames_seen;
+        let tokens = self
+            .decoder
+            .decode_frames(&encoded, &mut self.decoder_state)?
+            .into_iter()
+            .map(|token| TimedToken {
+                id: token.id,
+                frame: token.frame + offset,
+            })
+            .collect();
+        self.frames_seen += encoded_frames;
+        Ok(tokens)
     }
 }
 

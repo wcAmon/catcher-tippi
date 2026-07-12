@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use nemotron_mlx::{
-    model::{LanguagePrompt, StreamingEncoder, StreamingTranscriber, Tensor3},
+    model::{LanguagePrompt, StreamingEncoder, StreamingTranscriber, Tensor3, TimedToken},
     weights::Artifact,
 };
 
@@ -64,7 +64,8 @@ fn real_wav_matches_official_streaming_token_ids() {
     let mut transcriber = StreamingTranscriber::new(&artifact, "en-US", 3).unwrap();
 
     let one_shot = transcriber.transcribe_samples(&samples).unwrap();
-    assert_eq!(one_shot, expected, "official text: {}", reference.text);
+    let one_shot_ids = one_shot.iter().map(|token| token.id).collect::<Vec<_>>();
+    assert_eq!(one_shot_ids, expected, "official text: {}", reference.text);
 
     transcriber.reset().unwrap();
     let block_sizes = [127, 1_024, 333, 4_096, 511, 2_048];
@@ -79,7 +80,46 @@ fn real_wav_matches_official_streaming_token_ids() {
     }
     actual.extend(transcriber.finish().unwrap());
 
-    assert_eq!(actual, expected, "official text: {}", reference.text);
+    let actual_ids = actual.iter().map(|token| token.id).collect::<Vec<_>>();
+    assert_eq!(actual_ids, expected, "official text: {}", reference.text);
+    assert_eq!(
+        actual, one_shot,
+        "chunked and offline decodes must agree on ids and frames"
+    );
+}
+
+#[test]
+#[ignore = "requires NEMOTRON_MLX_ARTIFACT and the downloaded checkpoint"]
+fn chunked_and_offline_decodes_agree_on_ids_and_frames() {
+    let path = std::env::var_os("NEMOTRON_MLX_ARTIFACT")
+        .map(PathBuf::from)
+        .expect("set NEMOTRON_MLX_ARTIFACT to a converted artifact directory");
+    let artifact = Artifact::load(path).unwrap();
+    let mut reader = hound::WavReader::open(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/hello-streaming.wav"
+    ))
+    .unwrap();
+    assert_eq!(reader.spec().sample_rate, 16_000);
+    let samples = reader
+        .samples::<i16>()
+        .map(|sample| sample.unwrap() as f32 / 32768.0)
+        .collect::<Vec<_>>();
+
+    let mut offline_transcriber = StreamingTranscriber::new(&artifact, "en-US", 3).unwrap();
+    let offline: Vec<TimedToken> = offline_transcriber.transcribe_samples(&samples).unwrap();
+
+    let mut chunked_transcriber = StreamingTranscriber::new(&artifact, "en-US", 3).unwrap();
+    let mut chunked: Vec<TimedToken> = Vec::new();
+    for block in samples.chunks(1_600) {
+        chunked.extend(chunked_transcriber.push_samples(block).unwrap());
+    }
+    chunked.extend(chunked_transcriber.finish().unwrap());
+
+    assert_eq!(
+        offline, chunked,
+        "chunked (1600-sample pushes) and offline decodes must produce identical tokens and frames"
+    );
 }
 
 #[test]

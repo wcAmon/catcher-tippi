@@ -1,7 +1,7 @@
 use approx::assert_abs_diff_eq;
 use nemotron_mlx::model::{
     GreedyRnnt, LstmCell, LstmState, PredictionNetwork, PredictionState, QuantizedEmbedding,
-    QuantizedLinear,
+    QuantizedLinear, TimedToken,
 };
 
 static MLX_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -20,7 +20,17 @@ fn greedy_control_advances_only_on_blank_and_caps_symbols() {
         }
     });
 
-    assert_eq!(tokens, vec![4, 5, 5]);
+    // Frame 0 emits one token then blanks out (advances to frame 1). Frame 1
+    // caps at two symbols without ever seeing blank, so both share frame 1.
+    // Frame 2 blanks immediately and emits nothing.
+    assert_eq!(
+        tokens,
+        vec![
+            TimedToken { id: 4, frame: 0 },
+            TimedToken { id: 5, frame: 1 },
+            TimedToken { id: 5, frame: 1 },
+        ]
+    );
     assert_eq!(calls, vec![(0, 0), (0, 1), (1, 0), (1, 1), (2, 0)]);
 }
 

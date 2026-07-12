@@ -5,7 +5,11 @@ use std::path::Path;
 use std::ptr;
 use std::slice;
 
-use nemotron_mlx::{model::StreamingTranscriber, tokenizer::Tokenizer, weights::Artifact};
+use nemotron_mlx::{
+    model::{StreamingTranscriber, TimedToken},
+    tokenizer::Tokenizer,
+    weights::Artifact,
+};
 
 pub const CATCHER_OK: i32 = 0;
 pub const CATCHER_NO_UPDATE: i32 = 1;
@@ -28,7 +32,7 @@ enum SessionState {
 pub struct CatcherHandle {
     transcriber: StreamingTranscriber,
     tokenizer: Tokenizer,
-    tokens: Vec<u32>,
+    tokens: Vec<TimedToken>,
     text: CString,
     last_error: CString,
     state: SessionState,
@@ -222,14 +226,19 @@ pub unsafe extern "C" fn catcher_destroy(handle: *mut CatcherHandle) {
     }
 }
 
-fn update_text(handle: &mut CatcherHandle, tokens: Vec<u32>) -> Result<i32, (i32, String)> {
+fn update_text(handle: &mut CatcherHandle, tokens: Vec<TimedToken>) -> Result<i32, (i32, String)> {
     if tokens.is_empty() {
         return Ok(CATCHER_NO_UPDATE);
     }
     handle.tokens.extend(tokens);
+    let ids = handle
+        .tokens
+        .iter()
+        .map(|token| token.id)
+        .collect::<Vec<_>>();
     let text = handle
         .tokenizer
-        .decode(&handle.tokens, true)
+        .decode(&ids, true)
         .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
     handle.text = safe_c_string(&text);
     Ok(CATCHER_OK)

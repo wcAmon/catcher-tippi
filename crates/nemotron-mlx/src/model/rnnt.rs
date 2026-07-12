@@ -3,6 +3,18 @@ use mlx_rs::{Array, ops::indexing::TryIndexOp};
 use super::{ModelError, ModelResult, QuantizedLinear, Tensor3};
 use crate::weights::Artifact;
 
+/// A decoded token paired with the encoder frame it was emitted on.
+///
+/// `frame` is on the model's 80 ms subsampled grid: `frame * 80 ms` is the
+/// token's approximate start time. Frame indices returned by
+/// [`StreamingRnntDecoder::decode_frames`] are LOCAL to the decoded window;
+/// [`super::StreamingTranscriber`] offsets them to a GLOBAL utterance frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct TimedToken {
+    pub id: u32,
+    pub frame: u64,
+}
+
 /// Hidden and cell vectors for one LSTM layer and one streaming utterance.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LstmState {
@@ -354,7 +366,7 @@ impl StreamingRnntDecoder {
         &self,
         encoded: &Tensor3,
         state: &mut PredictionState,
-    ) -> ModelResult<Vec<u32>> {
+    ) -> ModelResult<Vec<TimedToken>> {
         if encoded.shape[0] != 1 || encoded.shape[2] != 1024 {
             return Err(ModelError::InvalidShape(
                 "RNNT encoder input must have shape [1,time,1024]".to_string(),
@@ -362,14 +374,17 @@ impl StreamingRnntDecoder {
         }
         let mut decoder_hidden = self.prediction.step(self.blank_token_id, state)?;
         let mut output = Vec::new();
-        for frame in encoded.values.chunks_exact(1024) {
-            let encoder_hidden = self.encoder_projector.forward_f32(frame, 1)?;
+        for (frame, chunk) in encoded.values.chunks_exact(1024).enumerate() {
+            let encoder_hidden = self.encoder_projector.forward_f32(chunk, 1)?;
             for _ in 0..self.max_symbols_per_step {
                 let token = self.joint.score(&encoder_hidden, &decoder_hidden)?;
                 if token == self.blank_token_id {
                     break;
                 }
-                output.push(token);
+                output.push(TimedToken {
+                    id: token,
+                    frame: frame as u64,
+                });
                 decoder_hidden = self.prediction.step(token, state)?;
             }
         }
@@ -387,7 +402,7 @@ impl GreedyRnnt {
         blank_token_id: u32,
         max_symbols_per_step: usize,
         mut score: impl FnMut(usize, usize) -> u32,
-    ) -> Vec<u32> {
+    ) -> Vec<TimedToken> {
         let mut output = Vec::new();
         for frame in 0..frame_count {
             for symbol in 0..max_symbols_per_step {
@@ -395,7 +410,10 @@ impl GreedyRnnt {
                 if token == blank_token_id {
                     break;
                 }
-                output.push(token);
+                output.push(TimedToken {
+                    id: token,
+                    frame: frame as u64,
+                });
             }
         }
         output
