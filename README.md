@@ -94,6 +94,38 @@ target/release/catcher diarize \
   --audio meeting.wav
 ```
 
+Pass `--diar-model` to `catcher transcribe` to fuse the two models in one
+streaming pass and print who said what, instead of a flat transcript:
+
+```sh
+target/release/catcher transcribe \
+  --model catcher-asr-mlx-int8 \
+  --diar-model catcher-diar-mlx-int8 \
+  --audio meeting.wav
+```
+
+```
+[00:00] 說話者1：喂你好
+[00:02] 說話者2：你好請問是哪位
+[00:06] 說話者1：我是想跟您確認一下訂單的狀態
+...
+```
+
+`--json` with `--diar-model` prints the same `SpeakerSegment` array shape as
+the C ABI's `catcher_segments` (`speaker`, `start_ms`, `end_ms`, `text`,
+`final`) instead of the flat-transcript JSON object used without
+`--diar-model`.
+
+All Chinese text produced anywhere in Catcher — the plain transcript, `--json`
+output, and per-speaker segments alike — is normalized to Taiwan-standard
+Traditional Chinese (OpenCC `s2twp`); simplified input is converted, and
+already-Traditional input passes through unchanged. The streaming diarizer's
+low-latency buffering (6-frame chunk + 7-frame right context at 80 ms/frame)
+adds about 1.04 s of algorithmic latency before a frame's speaker label is
+finalized; ASR tokens that arrive before that ride a tentative trailing
+segment until enough diarization context lands (or `catcher_finish`/EOF
+flushes it).
+
 ## Catcher C ABI
 
 The canonical header is `crates/catcher-ffi/include/catcher.h`. A loaded handle

@@ -4,7 +4,14 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use nemotron_mlx::{model::StreamingTranscriber, tokenizer::Tokenizer, weights::Artifact};
+use nemotron_mlx::{
+    fusion::{Fusion, FusionConfig},
+    model::StreamingTranscriber,
+    opencc,
+    tokenizer::Tokenizer,
+    weights::Artifact,
+};
+use sortformer_mlx::stream::StreamingDiarizer;
 
 #[derive(Debug, Parser)]
 #[command(name = "catcher", version, about = "Nemotron 3.5 ASR on Apple MLX")]
@@ -32,7 +39,13 @@ enum Command {
         /// tokenizer.json; defaults to MODEL/tokenizer.json.
         #[arg(long)]
         tokenizer: Option<PathBuf>,
-        /// Emit a JSON object instead of plain text.
+        /// Converted Sortformer MLX artifact directory. When set, drives
+        /// streaming diarization alongside transcription and prints
+        /// speaker-attributed segments instead of one flat transcript.
+        #[arg(long)]
+        diar_model: Option<PathBuf>,
+        /// Emit a JSON object (or, with --diar-model, a JSON array of
+        /// speaker segments) instead of plain text.
         #[arg(long)]
         json: bool,
     },
@@ -74,28 +87,75 @@ fn run(arguments: Arguments) -> Result<(), Box<dyn std::error::Error>> {
             language,
             lookahead,
             tokenizer,
+            diar_model,
             json,
         } => {
             let samples = read_wav(&audio)?;
             let artifact = Artifact::load(&model)?;
             let mut transcriber = StreamingTranscriber::new(&artifact, &language, lookahead)?;
-            let tokens = transcriber.transcribe_samples(&samples)?;
-            let token_ids = tokens.iter().map(|token| token.id).collect::<Vec<_>>();
             let tokenizer_path = tokenizer.unwrap_or_else(|| model.join("tokenizer.json"));
             let tokenizer = Tokenizer::from_json(tokenizer_path, 0, 13_087)?;
-            let text = tokenizer.decode(&token_ids, true)?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "text": text,
-                        "token_ids": token_ids,
-                        "language": language,
-                        "lookahead": lookahead,
-                    })
-                );
+
+            if let Some(diar_model) = diar_model {
+                let mut diarizer = StreamingDiarizer::from_artifact_dir(&diar_model)?;
+                let mut fusion = Fusion::new(FusionConfig::default());
+
+                for chunk in samples.chunks(1_600) {
+                    let tokens = transcriber.push_samples(chunk)?;
+                    if !tokens.is_empty() {
+                        fusion.push_tokens(&tokens);
+                    }
+                    let frames = diarizer.push_samples(chunk)?;
+                    if !frames.is_empty() {
+                        fusion.push_diar_frames(&frames);
+                    }
+                }
+                let tokens = transcriber.finish()?;
+                if !tokens.is_empty() {
+                    fusion.push_tokens(&tokens);
+                }
+                let frames = diarizer.finish()?;
+                if !frames.is_empty() {
+                    fusion.push_diar_frames(&frames);
+                }
+                fusion.flush();
+
+                let segments = fusion.segments(|ids| {
+                    tokenizer
+                        .decode(ids, true)
+                        .map(|decoded| opencc::to_traditional(&decoded))
+                        .unwrap_or_default()
+                });
+
+                if json {
+                    println!("{}", serde_json::to_string(&segments)?);
+                } else {
+                    for segment in &segments {
+                        println!(
+                            "[{}] 說話者{}：{}",
+                            format_timestamp_short(segment.start_ms),
+                            segment.speaker + 1,
+                            segment.text
+                        );
+                    }
+                }
             } else {
-                println!("{text}");
+                let tokens = transcriber.transcribe_samples(&samples)?;
+                let token_ids = tokens.iter().map(|token| token.id).collect::<Vec<_>>();
+                let text = opencc::to_traditional(&tokenizer.decode(&token_ids, true)?);
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "text": text,
+                            "token_ids": token_ids,
+                            "language": language,
+                            "lookahead": lookahead,
+                        })
+                    );
+                } else {
+                    println!("{text}");
+                }
             }
         }
         Command::Diarize {
@@ -139,6 +199,16 @@ fn format_timestamp(milliseconds: u64) -> String {
         milliseconds / 60_000,
         milliseconds % 60_000 / 1_000,
         milliseconds % 1_000
+    )
+}
+
+/// Same clock as [`format_timestamp`] without the millisecond component, for
+/// the terse `[mm:ss]` speaker-segment display.
+fn format_timestamp_short(milliseconds: u64) -> String {
+    format!(
+        "{:02}:{:02}",
+        milliseconds / 60_000,
+        milliseconds % 60_000 / 1_000
     )
 }
 
