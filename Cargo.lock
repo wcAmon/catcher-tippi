@@ -514,6 +514,7 @@ dependencies = [
  "hound",
  "nemotron-mlx",
  "serde_json",
+ "sortformer-mlx",
 ]
 
 [[package]]
