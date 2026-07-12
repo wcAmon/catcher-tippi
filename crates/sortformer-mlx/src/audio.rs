@@ -50,7 +50,11 @@ impl MelFrontend {
         frames
     }
 
-    fn extract(&self, audio: &[f32]) -> Vec<Vec<f32>> {
+    /// Extracts raw log-mel frames without normalization.
+    ///
+    /// The Sortformer checkpoint's preprocessor is configured with
+    /// `normalize: "NA"`, so the encoder consumes these unnormalized frames.
+    pub fn extract(&self, audio: &[f32]) -> Vec<Vec<f32>> {
         // Preemphasis: y[t] = x[t] - k * x[t-1].
         let mut signal = Vec::with_capacity(audio.len());
         let mut previous = 0.0f32;
@@ -61,9 +65,12 @@ impl MelFrontend {
         // Center-padded framing (reflect), Hann window, rfft power, mel, log.
         let pad = self.n_fft / 2;
         let padded = reflect_pad(&signal, pad);
+        // NeMo builds the window with torch.hann_window(win_length,
+        // periodic=False), i.e. the symmetric convention dividing by N - 1.
         let window: Vec<f32> = (0..self.window_length)
             .map(|index| {
-                let phase = 2.0 * std::f32::consts::PI * index as f32 / self.window_length as f32;
+                let phase =
+                    2.0 * std::f32::consts::PI * index as f32 / (self.window_length - 1) as f32;
                 0.5 * (1.0 - phase.cos())
             })
             .collect();

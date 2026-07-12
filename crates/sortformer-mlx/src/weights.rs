@@ -5,8 +5,8 @@ use std::path::Path;
 
 use mlx_rs::Array;
 use nemotron_mlx::weights::{
-    convert_tensors, copy_model_companion_files, ArtifactResult, Storage, TensorSpec,
-    TensorTransform,
+    ArtifactResult, Storage, TensorSpec, TensorTransform, convert_tensors,
+    copy_model_companion_files,
 };
 
 /// Upstream checkpoint identity recorded in the artifact manifest.

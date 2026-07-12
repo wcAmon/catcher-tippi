@@ -39,7 +39,10 @@ fn pointwise_convolutions_squeeze_then_quantize() {
 #[test]
 fn narrow_and_odd_tensors_stay_f16() {
     let specs = specs_from_inventory(&inventory(&[
-        ("transformer_encoder.layers.0.first_sub_layer.query_net.weight", &[192, 192]),
+        (
+            "transformer_encoder.layers.0.first_sub_layer.query_net.weight",
+            &[192, 192],
+        ),
         ("encoder.layers.0.conv.depthwise_conv.weight", &[512, 1, 9]),
         ("encoder.layers.0.self_attn.pos_bias_u", &[8, 64]),
         ("encoder.layers.0.norm_out.bias", &[512]),
@@ -48,7 +51,12 @@ fn narrow_and_odd_tensors_stay_f16() {
     assert_eq!(specs.len(), 5);
     for spec in &specs {
         assert_eq!(spec.storage, Storage::F16, "tensor {}", spec.name);
-        assert_eq!(spec.transform, TensorTransform::Identity, "tensor {}", spec.name);
+        assert_eq!(
+            spec.transform,
+            TensorTransform::Identity,
+            "tensor {}",
+            spec.name
+        );
     }
 }
 
@@ -73,5 +81,8 @@ fn real_inventory_produces_a_plan_covering_every_tensor() {
         .iter()
         .filter(|spec| matches!(spec.storage, Storage::Int8Affine { .. }))
         .count();
-    assert!(int8 > 100, "expected the conformer stack quantized, got {int8}");
+    assert!(
+        int8 > 100,
+        "expected the conformer stack quantized, got {int8}"
+    );
 }
