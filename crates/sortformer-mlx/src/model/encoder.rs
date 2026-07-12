@@ -13,10 +13,10 @@ use nemotron_mlx::model::{
 };
 use nemotron_mlx::weights::{Artifact, ArtifactError};
 
+use super::ops::{Norm, add_in_place, relu_in_place, silu_in_place, softmax_in_place};
 use super::{ModelError, ModelResult};
 use crate::config::SortformerConfig;
 
-const LAYER_NORM_EPSILON: f32 = 1.0e-5;
 const BATCH_NORM_EPSILON: f32 = 1.0e-5;
 
 /// Full-context NEST Fast-Conformer encoder.
@@ -24,8 +24,8 @@ const BATCH_NORM_EPSILON: f32 = 1.0e-5;
 pub struct Encoder {
     mel_bins: usize,
     hidden_size: usize,
-    /// NeMo `xscaling: true` multiplies the subsampled features by
-    /// `sqrt(d_model)` inside `RelPositionalEncoding` before the first block.
+    /// `sqrt(d_model)` when `config.xscaling` (NeMo's `RelPositionalEncoding`
+    /// input scaling), otherwise `1.0`; applied before the first block.
     input_scale: f32,
     subsampling: Subsampling,
     layers: Vec<ConformerBlock>,
@@ -59,7 +59,11 @@ impl Encoder {
         Ok(Self {
             mel_bins: config.n_mels,
             hidden_size: config.encoder_dim,
-            input_scale: (config.encoder_dim as f32).sqrt(),
+            input_scale: if config.xscaling {
+                (config.encoder_dim as f32).sqrt()
+            } else {
+                1.0
+            },
             subsampling: Subsampling::from_artifact(artifact, config)?,
             layers,
         })
@@ -331,49 +335,6 @@ impl Subsampling {
             shape: [1, rows, self.output_dims],
             values: self.output.forward_f32(&flattened, rows)?,
         })
-    }
-}
-
-/// F32 layer normalization over the channel dimension.
-#[derive(Debug)]
-struct Norm {
-    weight: Vec<f32>,
-    bias: Vec<f32>,
-}
-
-impl Norm {
-    fn from_artifact(artifact: &Artifact, prefix: &str) -> ModelResult<Self> {
-        let weight = artifact.f16_to_f32(&format!("{prefix}.weight"))?;
-        let bias = artifact.f16_to_f32(&format!("{prefix}.bias"))?;
-        if weight.is_empty() || weight.len() != bias.len() {
-            return Err(ModelError::InvalidShape(format!(
-                "layer norm {prefix} weight and bias lengths must match"
-            )));
-        }
-        Ok(Self { weight, bias })
-    }
-
-    fn forward(&self, input: &[f32], rows: usize) -> ModelResult<Vec<f32>> {
-        let dimensions = self.weight.len();
-        if rows.checked_mul(dimensions) != Some(input.len()) {
-            return Err(ModelError::InvalidShape(format!(
-                "layer norm input has {} values, expected {rows}x{dimensions}",
-                input.len()
-            )));
-        }
-        let mut output = Vec::with_capacity(input.len());
-        for row in input.chunks_exact(dimensions) {
-            let mean = row.iter().sum::<f32>() / dimensions as f32;
-            let variance =
-                row.iter().map(|value| (value - mean).powi(2)).sum::<f32>() / dimensions as f32;
-            let scale = 1.0 / (variance + LAYER_NORM_EPSILON).sqrt();
-            output.extend(
-                row.iter()
-                    .zip(self.weight.iter().zip(&self.bias))
-                    .map(|(value, (weight, bias))| (value - mean) * scale * weight + bias),
-            );
-        }
-        Ok(output)
     }
 }
 
@@ -718,35 +679,5 @@ impl ConformerBlock {
         add_in_place(&mut hidden, &feed_forward2, 0.5);
 
         self.norm_out.forward(&hidden, frames)
-    }
-}
-
-fn add_in_place(accumulator: &mut [f32], update: &[f32], scale: f32) {
-    for (accumulated, update) in accumulator.iter_mut().zip(update) {
-        *accumulated += scale * update;
-    }
-}
-
-fn relu_in_place(values: &mut [f32]) {
-    for value in values {
-        *value = value.max(0.0);
-    }
-}
-
-fn silu_in_place(values: &mut [f32]) {
-    for value in values {
-        *value /= 1.0 + (-*value).exp();
-    }
-}
-
-fn softmax_in_place(values: &mut [f32]) {
-    let maximum = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let mut total = 0.0;
-    for value in values.iter_mut() {
-        *value = (*value - maximum).exp();
-        total += *value;
-    }
-    for value in values {
-        *value /= total;
     }
 }

@@ -25,3 +25,23 @@ fn output_frame_duration_is_80_ms() {
     let frame_ms = config.hop_seconds * config.subsampling_factor as f64 * 1_000.0;
     assert!((frame_ms - 80.0).abs() < 1e-6);
 }
+
+#[test]
+fn config_parses_xscaling_and_defaults_to_true_when_absent() {
+    let config = SortformerConfig::from_json(FIXTURE).unwrap();
+    assert!(config.xscaling);
+
+    // The fixture has `encoder.xscaling: true`; strip it and confirm the
+    // parser still defaults to true, since published artifacts may omit it.
+    let mut stripped: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+    stripped
+        .get_mut("encoder")
+        .and_then(|encoder| encoder.as_object_mut())
+        .expect("fixture must have an encoder object")
+        .remove("xscaling");
+    let config = SortformerConfig::from_json(&stripped.to_string()).unwrap();
+    assert!(
+        config.xscaling,
+        "absent xscaling must default to true (published artifact compat)"
+    );
+}

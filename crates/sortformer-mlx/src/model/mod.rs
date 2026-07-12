@@ -1,6 +1,7 @@
 //! MLX-backed Sortformer model modules.
 
 mod encoder;
+pub(crate) mod ops;
 mod transformer;
 
 pub use encoder::{Encoder, EncoderTrace};

@@ -17,11 +17,10 @@
 use nemotron_mlx::model::{QuantizedLinear, Tensor3};
 use nemotron_mlx::weights::{Artifact, ArtifactError, Storage};
 
+use super::ops::{Norm, relu_in_place, softmax_in_place};
 use super::{Encoder, ModelError, ModelResult};
 use crate::audio::MelFrontend;
 use crate::config::SortformerConfig;
-
-const LAYER_NORM_EPSILON: f32 = 1.0e-5;
 
 /// A linear layer that adapts to the artifact's per-tensor storage policy.
 ///
@@ -120,49 +119,6 @@ impl Linear {
                 Ok(output)
             }
         }
-    }
-}
-
-/// F32 layer normalization over the channel dimension (NeMo `nn.LayerNorm`).
-#[derive(Debug)]
-struct Norm {
-    weight: Vec<f32>,
-    bias: Vec<f32>,
-}
-
-impl Norm {
-    fn from_artifact(artifact: &Artifact, prefix: &str) -> ModelResult<Self> {
-        let weight = artifact.f16_to_f32(&format!("{prefix}.weight"))?;
-        let bias = artifact.f16_to_f32(&format!("{prefix}.bias"))?;
-        if weight.is_empty() || weight.len() != bias.len() {
-            return Err(ModelError::InvalidShape(format!(
-                "layer norm {prefix} weight and bias lengths must match"
-            )));
-        }
-        Ok(Self { weight, bias })
-    }
-
-    fn forward(&self, input: &[f32], rows: usize) -> ModelResult<Vec<f32>> {
-        let dimensions = self.weight.len();
-        if rows.checked_mul(dimensions) != Some(input.len()) {
-            return Err(ModelError::InvalidShape(format!(
-                "layer norm input has {} values, expected {rows}x{dimensions}",
-                input.len()
-            )));
-        }
-        let mut output = Vec::with_capacity(input.len());
-        for row in input.chunks_exact(dimensions) {
-            let mean = row.iter().sum::<f32>() / dimensions as f32;
-            let variance =
-                row.iter().map(|value| (value - mean).powi(2)).sum::<f32>() / dimensions as f32;
-            let scale = 1.0 / (variance + LAYER_NORM_EPSILON).sqrt();
-            output.extend(
-                row.iter()
-                    .zip(self.weight.iter().zip(&self.bias))
-                    .map(|(value, (weight, bias))| (value - mean) * scale * weight + bias),
-            );
-        }
-        Ok(output)
     }
 }
 
@@ -433,23 +389,5 @@ impl Diarizer {
             shape: [1, frames, self.transformer_dim],
             values: hidden,
         })
-    }
-}
-
-fn relu_in_place(values: &mut [f32]) {
-    for value in values {
-        *value = value.max(0.0);
-    }
-}
-
-fn softmax_in_place(values: &mut [f32]) {
-    let maximum = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let mut total = 0.0;
-    for value in values.iter_mut() {
-        *value = (*value - maximum).exp();
-        total += *value;
-    }
-    for value in values {
-        *value /= total;
     }
 }

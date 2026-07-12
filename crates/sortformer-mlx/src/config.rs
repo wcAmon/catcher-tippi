@@ -40,6 +40,15 @@ struct RawEncoder {
     conv_kernel_size: usize,
     subsampling_factor: usize,
     subsampling_conv_channels: usize,
+    /// NeMo's `RelPositionalEncoding` input scaling flag. Published model
+    /// artifacts may omit this key entirely, so it defaults to `true` to
+    /// match NeMo's own default and the checkpoints seen so far.
+    #[serde(default = "default_true")]
+    xscaling: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -75,6 +84,10 @@ pub struct SortformerConfig {
     pub transformer_inner_dim: usize,
     pub transformer_heads: usize,
     pub num_speakers: usize,
+    /// Whether the encoder scales subsampled features by `sqrt(d_model)`
+    /// before the first Conformer block (NeMo `RelPositionalEncoding`
+    /// `xscaling`). Defaults to `true` when absent from the config.
+    pub xscaling: bool,
 }
 
 impl SortformerConfig {
@@ -104,6 +117,7 @@ impl SortformerConfig {
             transformer_inner_dim: raw.transformer_encoder.inner_size,
             transformer_heads: raw.transformer_encoder.num_attention_heads,
             num_speakers: raw.sortformer_modules.num_spks,
+            xscaling: raw.encoder.xscaling,
         })
     }
 }
