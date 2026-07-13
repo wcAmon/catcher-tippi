@@ -15,7 +15,7 @@
 - 不新增任何第三方依賴(Rust 與 Swift 皆是)。
 - JSON 欄位名(Rust serde 決定,Swift 必須對齊):`speaker`、`start_ms`、`end_ms`、`text`、`final`。
 - 繁中 UI 文案精確字串:未命名說話者顯示 `說話者 N`(N = speaker 索引 + 1);警告橫幅 `說話者分離已暫停,文字繼續轉寫`;按鈕 `複製全部`、`匯出…`、context menu `複製此則`。
-- 複製/匯出行格式:`[mm:ss] 顯示名:內文`(冒號是全形 `:`,mm 至少兩位數、超過 99 分鐘自然進位如 `[102:07]`),多行以 `\n` join;複製與匯出共用同一個格式化函式。
+- 複製/匯出行格式:`[mm:ss] 顯示名：內文`(冒號是全形 `:`,mm 至少兩位數、超過 99 分鐘自然進位如 `[102:07]`),多行以 `\n` join;複製與匯出共用同一個格式化函式。
 - rust-toolchain.toml 鎖 `channel = "1.95.0"`。
 - diar artifact hash/位元組數必須逐字使用 Task 4 表列值(來源:main commit `e556258` body)。
 - 所有會驅動 MLX 的 Rust gated 測試(`#[ignore = "requires …"]`)必須先取 `serialize_mlx()` guard;環境變數 `NEMOTRON_MLX_ARTIFACT`(/tmp/catcher-asr-mlx-int8)、`SORTFORMER_MLX_ARTIFACT`(/tmp/catcher-diar-mlx-int8)。
@@ -800,10 +800,10 @@ func formatsLinesWithNamesAndDefaults() {
     let unnamed = Message(id: 1, speaker: 1, startMs: 6_132_000, text: "好。", isFinal: true)
     let names = [0: "小明"]
 
-    #expect(TranscriptFormatter.line(for: named, names: names) == "[03:24] 小明:今天先討論這個。")
-    #expect(TranscriptFormatter.line(for: unnamed, names: names) == "[102:12] 說話者 2:好。")
+    #expect(TranscriptFormatter.line(for: named, names: names) == "[03:24] 小明：今天先討論這個。")
+    #expect(TranscriptFormatter.line(for: unnamed, names: names) == "[102:12] 說話者 2：好。")
     #expect(TranscriptFormatter.transcript(messages: [named, unnamed], names: names)
-        == "[03:24] 小明:今天先討論這個。\n[102:12] 說話者 2:好。")
+        == "[03:24] 小明：今天先討論這個。\n[102:12] 說話者 2：好。")
 }
 
 @Test
@@ -897,7 +897,7 @@ public struct Message: Identifiable, Equatable, Sendable {
 }
 
 /// Shared line formatting for on-screen copy actions and file export, so the
-/// two never drift apart. Line shape: `[mm:ss] 顯示名:內文` (fullwidth
+/// two never drift apart. Line shape: `[mm:ss] 顯示名：內文` (fullwidth
 /// colon; minutes grow past two digits naturally).
 public enum TranscriptFormatter {
     public static func displayName(for speaker: Int, names: [Int: String]) -> String {
@@ -910,7 +910,7 @@ public enum TranscriptFormatter {
     }
 
     public static func line(for message: Message, names: [Int: String]) -> String {
-        "\(timestamp(forMs: message.startMs)) \(displayName(for: message.speaker, names: names)):\(message.text)"
+        "\(timestamp(forMs: message.startMs)) \(displayName(for: message.speaker, names: names))：\(message.text)"
     }
 
     public static func transcript(messages: [Message], names: [Int: String]) -> String {
@@ -1555,7 +1555,7 @@ git commit -m "feat: add copy-all, per-message copy, and .txt export"
 
 - [ ] **Step 1: README 更新**
 
-Tippi 章節補:首次啟動下載兩個模型(ASR `wcamon/catcher-asr-mlx-int8` ≈628MB + diarization `wcamon/catcher-diar-mlx-int8` ≈121MB,合併進度條);錄音顯示分說話者訊息列表(未命名顯示 說話者 N,點名字改名);「複製全部」「匯出…」與每則「複製此則」,行格式 `[03:24] 小明:今天先討論這個。`;diarization 執行期錯誤顯示非阻斷橫幅、下次錄音自動恢復。C ABI 章節若提及 `catcher_start`,補一句重建語義。
+Tippi 章節補:首次啟動下載兩個模型(ASR `wcamon/catcher-asr-mlx-int8` ≈628MB + diarization `wcamon/catcher-diar-mlx-int8` ≈121MB,合併進度條);錄音顯示分說話者訊息列表(未命名顯示 說話者 N,點名字改名);「複製全部」「匯出…」與每則「複製此則」,行格式 `[03:24] 小明：今天先討論這個。`;diarization 執行期錯誤顯示非阻斷橫幅、下次錄音自動恢復。C ABI 章節若提及 `catcher_start`,補一句重建語義。
 
 - [ ] **Step 2: Rust 全套驗證**
 

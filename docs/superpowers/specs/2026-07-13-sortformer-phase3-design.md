@@ -13,7 +13,7 @@ Tippi 端到端的 who-said-what 體驗:首次啟動合併下載 ASR+diar 雙模
 - **執行期降級用非阻斷橫幅**:diar 執行期錯誤時錄音繼續,訊息列表上方顯示「說話者分離已暫停,文字繼續轉寫」;後續文字歸到最後一位已知說話者(fusion 既有行為)。下次錄音 `catcher_start` 重建 diarizer 後橫幅消失。
 - **架構方案 A**:兩個 ModelStore 實例 + 薄協調器;segments JSON 在 CatcherClient 層解碼成型別。
 - 說話者命名與訊息在新錄音開始時重設(母文件既定)。
-- 複製/匯出行格式:`[03:24] 小明:今天先討論這個。`(fullwidth colon,母文件既定);錄音中也可複製/匯出,tentative 文字照當前內容輸出。
+- 複製/匯出行格式:`[03:24] 小明：今天先討論這個。`(fullwidth colon,母文件既定);錄音中也可複製/匯出,tentative 文字照當前內容輸出。
 
 ## 1. Rust 側前置修正(三個必辦旗標)
 

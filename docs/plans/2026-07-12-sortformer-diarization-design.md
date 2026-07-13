@@ -154,7 +154,7 @@ stay meaningful.
 - **Export and copy**: toolbar gains "複製全部" (clipboard) and "匯出…"
   (`NSSavePanel`, satisfying the sandbox via user-selected file write, saved
   as UTF-8 `.txt`). Per-message copy via context menu. Line format:
-  `[03:24] 小明:今天先討論這個。` — identical for copy and export.
+  `[03:24] 小明：今天先討論這個。` — identical for copy and export.
 
 ## Testing
 
