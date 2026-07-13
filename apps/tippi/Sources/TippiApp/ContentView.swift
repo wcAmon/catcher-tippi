@@ -39,23 +39,54 @@ struct ContentView: View {
         }
     }
 
+    private static let accents: [Color] = [.blue, .green, .orange, .purple]
+
     private var transcript: some View {
-        let transcriptText = TranscriptFormatter.transcript(
-            messages: controller.messages,
-            names: controller.speakerNames
-        )
-        return VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("TRANSCRIPT")
                 .font(.caption.weight(.semibold))
                 .tracking(1.2)
                 .foregroundStyle(.secondary)
-            ScrollView {
-                Text(transcriptText.isEmpty ? placeholder : transcriptText)
+            if controller.warningMessage != nil {
+                Label("說話者分離已暫停,文字繼續轉寫", systemImage: "person.2.slash")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            }
+            if controller.messages.isEmpty {
+                Text(placeholder)
                     .font(.system(size: 23, weight: .regular, design: .rounded))
-                    .foregroundStyle(transcriptText.isEmpty ? .tertiary : .primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.vertical, 4)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            ForEach(controller.messages) { message in
+                                MessageRow(
+                                    message: message,
+                                    name: TranscriptFormatter.displayName(
+                                        for: message.speaker,
+                                        names: controller.speakerNames
+                                    ),
+                                    accent: Self.accents[message.speaker % Self.accents.count],
+                                    onRename: { newName in
+                                        rename(speaker: message.speaker, to: newName)
+                                    }
+                                )
+                                .id(message.id)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .onChange(of: controller.messages.last?.text) {
+                        if let lastID = controller.messages.last?.id {
+                            proxy.scrollTo(lastID, anchor: .bottom)
+                        }
+                    }
+                }
             }
         }
         .padding(22)
@@ -114,6 +145,14 @@ struct ContentView: View {
         switch controller.state {
         case .recording: "Listening…"
         default: "Turn recording on and start speaking."
+        }
+    }
+
+    private func rename(speaker: Int, to newName: String) {
+        if newName.isEmpty {
+            controller.speakerNames.removeValue(forKey: speaker)
+        } else {
+            controller.speakerNames[speaker] = newName
         }
     }
 
