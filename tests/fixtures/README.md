@@ -1,4 +1,21 @@
-# conversation.wav / conversation.json
+# Audio fixtures
+
+## tippi-go.wav
+
+Deterministic positive fixture for the offline `Tippi Go` keyword detector.
+It is Samantha's macOS system voice saying "Tippy go" at 170 words per
+minute, converted to 16 kHz mono PCM16. KWS tests add one second of digital
+silence before and after this clip so the streaming model receives enough
+left context.
+
+Reconstruction commands:
+
+```sh
+/usr/bin/say -v Samantha -r 170 -o /tmp/tippi-go.aiff "Tippy go"
+/usr/bin/afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/tippi-go.aiff tests/fixtures/tippi-go.wav
+```
+
+## conversation.wav / conversation.json
 
 Two-speaker conversation fixture used by streaming-diarization parity tests
 (Task 4: NeMo reference run) and end-to-end who-said-what validation (Task

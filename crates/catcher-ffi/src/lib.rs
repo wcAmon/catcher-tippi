@@ -14,8 +14,13 @@ use nemotron_mlx::{
 };
 use sortformer_mlx::stream::StreamingDiarizer;
 
+mod kws;
+
+use kws::KeywordSpotterSession;
+
 pub const CATCHER_OK: i32 = 0;
 pub const CATCHER_NO_UPDATE: i32 = 1;
+pub const CATCHER_COMMAND_DETECTED: i32 = 2;
 pub const CATCHER_INVALID_ARGUMENT: i32 = -1;
 pub const CATCHER_INVALID_STATE: i32 = -2;
 pub const CATCHER_RUNTIME_ERROR: i32 = -3;
@@ -53,6 +58,185 @@ pub struct CatcherHandle {
     warning: Option<CString>,
     last_error: CString,
     state: SessionState,
+}
+
+#[repr(C)]
+pub struct KwsHandle {
+    session: KeywordSpotterSession,
+    keyword: CString,
+    start_ms: u64,
+    last_error: CString,
+    started: bool,
+}
+
+/// Loads the fixed sherpa-onnx keyword model directory and creates an idle
+/// keyword-spotting handle.
+///
+/// # Safety
+///
+/// `model_directory` must point to a valid NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_create(model_directory: *const c_char) -> *mut KwsHandle {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let directory = unsafe { required_string(model_directory, "model_directory")? };
+        let session = KeywordSpotterSession::load(Path::new(&directory))?;
+        Ok::<_, String>(KwsHandle {
+            session,
+            keyword: empty_c_string(),
+            start_ms: 0,
+            last_error: empty_c_string(),
+            started: false,
+        })
+    }));
+
+    match result {
+        Ok(Ok(handle)) => Box::into_raw(Box::new(handle)),
+        Ok(Err(error)) => {
+            set_global_error(&error);
+            ptr::null_mut()
+        }
+        Err(payload) => {
+            set_global_error(&panic_message(payload));
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Resets the keyword stream and clears the latched detection.
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_kws_create`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_start(handle: *mut KwsHandle) -> i32 {
+    unsafe {
+        with_kws_handle_mut(handle, |handle| {
+            handle.session.reset();
+            handle.keyword = empty_c_string();
+            handle.start_ms = 0;
+            handle.started = true;
+            Ok(CATCHER_OK)
+        })
+    }
+}
+
+/// Pushes mono Float32 16 kHz samples into the active keyword stream.
+///
+/// # Safety
+///
+/// `handle` must be live. When `count` is non-zero, `samples` must reference at
+/// least `count` initialized floats for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_push_audio(
+    handle: *mut KwsHandle,
+    samples: *const f32,
+    count: usize,
+) -> i32 {
+    if count > 0 && samples.is_null() {
+        set_global_error("samples is null while count is non-zero");
+        return CATCHER_INVALID_ARGUMENT;
+    }
+    let samples = if count == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(samples, count) }
+    };
+    unsafe {
+        with_kws_handle_mut(handle, |handle| {
+            if !handle.started {
+                return Err((
+                    CATCHER_INVALID_STATE,
+                    "KWS session is not recording".to_string(),
+                ));
+            }
+            if let Some(detection) = handle.session.push(samples) {
+                handle.keyword = safe_c_string(&detection.keyword);
+                handle.start_ms = detection.start_ms;
+                Ok(CATCHER_COMMAND_DETECTED)
+            } else {
+                Ok(CATCHER_NO_UPDATE)
+            }
+        })
+    }
+}
+
+/// Returns the currently latched keyword, or an empty string before detection.
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_kws_create`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_keyword(handle: *const KwsHandle) -> *const c_char {
+    if handle.is_null() {
+        set_global_error("KWS handle is null");
+        return ptr::null();
+    }
+    match catch_unwind(AssertUnwindSafe(|| unsafe { (&*handle).keyword.as_ptr() })) {
+        Ok(pointer) => pointer,
+        Err(payload) => {
+            set_global_error(&panic_message(payload));
+            ptr::null()
+        }
+    }
+}
+
+/// Returns the start of the currently latched command in milliseconds.
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_kws_create`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_start_ms(handle: *const KwsHandle) -> u64 {
+    if handle.is_null() {
+        set_global_error("KWS handle is null");
+        return 0;
+    }
+    match catch_unwind(AssertUnwindSafe(|| unsafe { (&*handle).start_ms })) {
+        Ok(start_ms) => start_ms,
+        Err(payload) => {
+            set_global_error(&panic_message(payload));
+            0
+        }
+    }
+}
+
+/// Returns the last KWS error for a handle, or the current thread when null.
+///
+/// # Safety
+///
+/// A non-null `handle` must be live and returned by `catcher_kws_create`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_last_error(handle: *const KwsHandle) -> *const c_char {
+    if handle.is_null() {
+        return LAST_ERROR.with(|error| error.borrow().as_ptr());
+    }
+    match catch_unwind(AssertUnwindSafe(|| unsafe {
+        (&*handle).last_error.as_ptr()
+    })) {
+        Ok(pointer) => pointer,
+        Err(payload) => {
+            set_global_error(&panic_message(payload));
+            LAST_ERROR.with(|error| error.borrow().as_ptr())
+        }
+    }
+}
+
+/// Releases a KWS handle. A null pointer is accepted.
+///
+/// # Safety
+///
+/// A non-null `handle` must be live and must not be destroyed more than once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_kws_destroy(handle: *mut KwsHandle) {
+    if handle.is_null() {
+        return;
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+        drop(Box::from_raw(handle));
+    }));
+    if let Err(payload) = result {
+        set_global_error(&panic_message(payload));
+    }
 }
 
 /// Loads a Catcher ASR model (and, optionally, a Sortformer diarization
@@ -471,6 +655,27 @@ unsafe fn with_handle_mut(
 ) -> i32 {
     if handle.is_null() {
         set_global_error("catcher handle is null");
+        return CATCHER_INVALID_ARGUMENT;
+    }
+    match catch_unwind(AssertUnwindSafe(|| operation(unsafe { &mut *handle }))) {
+        Ok(Ok(status)) => status,
+        Ok(Err((status, error))) => {
+            unsafe { &mut *handle }.last_error = safe_c_string(&error);
+            status
+        }
+        Err(payload) => {
+            unsafe { &mut *handle }.last_error = safe_c_string(&panic_message(payload));
+            CATCHER_RUNTIME_ERROR
+        }
+    }
+}
+
+unsafe fn with_kws_handle_mut(
+    handle: *mut KwsHandle,
+    operation: impl FnOnce(&mut KwsHandle) -> Result<i32, (i32, String)>,
+) -> i32 {
+    if handle.is_null() {
+        set_global_error("KWS handle is null");
         return CATCHER_INVALID_ARGUMENT;
     }
     match catch_unwind(AssertUnwindSafe(|| operation(unsafe { &mut *handle }))) {

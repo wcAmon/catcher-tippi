@@ -12,6 +12,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 nemotron-mlx = { path = "../nemotron-mlx" }
 sortformer-mlx = { path = "../sortformer-mlx" }
 serde_json = "1"
+sherpa-onnx = "1.13.4"
 
 [dev-dependencies]
 hound = "3"
