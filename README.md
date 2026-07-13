@@ -120,8 +120,14 @@ To use it:
 1. 打開「語音輸入」分頁，等待 Catcher 與 Tippi Go 模型就緒。
 2. 授予 Tippi「系統設定 → 隱私權與安全性 → 輔助使用」權限。
 3. 按「開始語音輸入」，切到目標 App 並點進輸入框。
-4. 說出內容；最後說「Tippi Go」送出。
+4. 說完內容後短暫停頓（約 0.5 秒），再說「Tippi Go」送出。
 5. Tippi Go 不會進入輸入框。停止按鈕不會自動送出未完成內容。
+
+- Live text is intentionally held for about 1.5 seconds before injection.
+- After finishing the content, pause briefly (about 0.5 seconds), then say Tippi Go.
+- The pause keeps the final content outside the command safety window.
+- If content runs directly into the command, Tippi prefers dropping a very short tail over leaking command words.
+- sherpa-onnx timestamps are diagnostic-only; cutoff follows the shared 16 kHz sample clock.
 
 Tippi injects text as Unicode keyboard events and presses Return exactly once
 when the command is accepted; it does not use or replace the clipboard. Keep

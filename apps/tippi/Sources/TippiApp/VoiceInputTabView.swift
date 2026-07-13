@@ -43,7 +43,7 @@ struct VoiceInputTabView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("語音輸入")
                     .font(.system(size: 32, weight: .semibold, design: .rounded))
-                Text("說話即可輸入文字，說出 Tippi Go 就會送出。")
+                Text("內容說完後短暫停頓，再說 Tippi Go 送出。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -104,14 +104,18 @@ struct VoiceInputTabView: View {
             Label("語音辨識模型已就緒", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
         case let .failed(message):
+            let runtimeFailure = controller.failedMode == .voiceInput
             VStack(alignment: .leading, spacing: 10) {
-                Label("語音辨識模型準備失敗", systemImage: "exclamationmark.triangle.fill")
+                Label(
+                    runtimeFailure ? "語音輸入已停止" : "語音辨識模型準備失敗",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
                     .foregroundStyle(.red)
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
-                Button("重試語音辨識模型") {
+                Button(runtimeFailure ? "重新準備語音輸入" : "重試語音辨識模型") {
                     Task { await controller.prepare() }
                 }
                 .buttonStyle(.borderedProminent)
@@ -257,7 +261,9 @@ struct VoiceInputTabView: View {
     }
 
     private var recordingHint: String {
-        if controller.isRecording(.voiceInput) { return "正在聆聽；說 Tippi Go 送出。" }
+        if controller.isRecording(.voiceInput) {
+            return "文字約延遲 1.5 秒；短暫停頓後說 Tippi Go。"
+        }
         if controller.activeMode == .transcription { return "轉錄分頁正在使用麥克風。" }
         if !controller.accessibilityTrusted { return "授權後才能開始。" }
         if case .failed = controller.state { return "請先重試語音辨識模型。" }
