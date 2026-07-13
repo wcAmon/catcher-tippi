@@ -314,6 +314,9 @@ public final class TranscriptionController {
             targetApplicationName = target
             if !text.isEmpty { lastInjectedText = text }
             voiceInputMessage = "已送出"
+        case .nothingToSubmit:
+            lastInjectedText = ""
+            voiceInputMessage = "沒有可送出的文字"
         case .duplicateCommandIgnored:
             break
         }

@@ -5,6 +5,7 @@ public enum TextInjectionEvent: Equatable, Sendable {
     case waitingForTarget
     case injected(text: String, target: String)
     case submitted(text: String, target: String)
+    case nothingToSubmit
     case duplicateCommandIgnored
 }
 
@@ -66,6 +67,9 @@ public final class TextInjectionCoordinator {
     public func submit(_ fullText: String) throws -> TextInjectionEvent {
         guard !commandInFlight else {
             return .duplicateCommandIgnored
+        }
+        guard !fullText.isEmpty || !injectedPrefix.isEmpty else {
+            return .nothingToSubmit
         }
         guard let target = injectableTarget() else {
             return .waitingForTarget

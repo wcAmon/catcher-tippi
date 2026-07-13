@@ -102,6 +102,15 @@ func submitInjectsRemainingSuffixBeforeReturn() throws {
 
 @MainActor
 @Test
+func emptyTurnDoesNotPressReturn() throws {
+    let (coordinator, injector, _) = makeCoordinator()
+
+    #expect(try coordinator.submit("") == .nothingToSubmit)
+    #expect(injector.events.isEmpty)
+}
+
+@MainActor
+@Test
 func duplicateSubmitIsIgnoredUntilReset() throws {
     let (coordinator, injector, _) = makeCoordinator()
 
