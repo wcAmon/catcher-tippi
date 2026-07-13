@@ -4,6 +4,7 @@ import Foundation
 public protocol CatcherServing: Sendable {
     func start() async throws
     func push(_ samples: [Float]) async throws -> TranscriptUpdate?
+    func text(before cutoffMs: UInt64) async throws -> String
     func finish() async throws -> TranscriptUpdate
     func finish(before cutoffMs: UInt64) async throws -> TranscriptUpdate
 }
@@ -59,6 +60,13 @@ public actor CatcherClient: CatcherServing {
         if status == CATCHER_NO_UPDATE { return nil }
         try check(status, allowNoUpdate: false)
         return try currentUpdate()
+    }
+
+    public func text(before cutoffMs: UInt64) async throws -> String {
+        guard let pointer = catcher_text_before(owner.pointer, cutoffMs) else {
+            throw CatcherClientError.operationFailed(currentError())
+        }
+        return String(cString: pointer)
     }
 
     public func finish() async throws -> TranscriptUpdate {

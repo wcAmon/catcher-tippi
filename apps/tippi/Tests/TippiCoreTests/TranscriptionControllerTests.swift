@@ -82,10 +82,12 @@ private actor FakeCatcher: CatcherServing {
     private let log: EventLog?
     private var events: [String] = []
     private var pushUpdates: [TranscriptUpdate?] = []
+    private var stableTexts: [String] = []
     private var finishUpdate = TranscriptUpdate(text: "", segments: [], warning: nil)
     private var finishBeforeUpdate = TranscriptUpdate(text: "", segments: [], warning: nil)
     private var startError: TestFailure?
     private var pushError: TestFailure?
+    private var textBeforeError: TestFailure?
     private var finishError: TestFailure?
     private var finishBeforeError: TestFailure?
 
@@ -104,6 +106,12 @@ private actor FakeCatcher: CatcherServing {
         return pushUpdates.isEmpty ? nil : pushUpdates.removeFirst()
     }
 
+    func text(before cutoffMs: UInt64) async throws -> String {
+        record("textBefore:\(cutoffMs)")
+        if let textBeforeError { throw textBeforeError }
+        return stableTexts.isEmpty ? "" : stableTexts.removeFirst()
+    }
+
     func finish() async throws -> TranscriptUpdate {
         record("finish")
         if let finishError { throw finishError }
@@ -118,16 +126,19 @@ private actor FakeCatcher: CatcherServing {
 
     func script(
         pushes: [TranscriptUpdate?] = [],
+        stableTexts: [String] = [],
         finish: TranscriptUpdate = TranscriptUpdate(text: "", segments: [], warning: nil),
         finishBefore: TranscriptUpdate? = nil
     ) {
         pushUpdates = pushes
+        self.stableTexts = stableTexts
         finishUpdate = finish
         finishBeforeUpdate = finishBefore ?? finish
     }
 
     func failStart(with error: TestFailure) { startError = error }
     func failPush(with error: TestFailure) { pushError = error }
+    func failTextBefore(with error: TestFailure) { textBeforeError = error }
     func failFinish(with error: TestFailure) { finishError = error }
     func failFinishBefore(with error: TestFailure) { finishBeforeError = error }
     func snapshot() -> [String] { events }
