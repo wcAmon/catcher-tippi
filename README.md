@@ -3,8 +3,8 @@
 **Catcher** is an end-to-end Rust speech-to-text runtime for
 [`nvidia/nemotron-3.5-asr-streaming-0.6b`](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b),
 using MLX-C/Metal on Apple Silicon. **Tippi** is its native macOS SwiftUI app:
-turn recording on, speak, watch partial text appear, and turn recording off to
-flush the final transcript.
+record speaker-attributed transcripts, or stream recognized text into the
+frontmost app and say `Tippi Go` to press Return.
 
 Catcher performs log-mel extraction, cache-aware 24-layer FastConformer
 inference, language prompting, greedy RNNT decoding, and tokenizer decoding
@@ -30,8 +30,8 @@ hf download wcamon/catcher-asr-mlx-int8 \
 ```
 
 Tippi performs this download automatically on first launch, verifies pinned
-SHA-256 hashes, and installs the model atomically under its sandboxed Application
-Support directory. The app contains no Hugging Face token.
+SHA-256 hashes, and installs the model atomically under its Application Support
+directory. The app contains no Hugging Face token.
 
 ## Download the public diarization model
 
@@ -55,19 +55,19 @@ open apps/tippi/build/Tippi.app
 
 The build script compiles the release Catcher dylib, builds the Swift package,
 creates the standard `.app` bundle, embeds the dylib, normalizes `@rpath`, adds
-microphone/network sandbox entitlements, ad-hoc signs nested code and the app,
-then verifies the complete bundle.
+microphone/network entitlements, ad-hoc signs nested code and the app, then
+verifies the complete bundle. Tippi is intentionally not sandboxed because
+cross-app text injection uses macOS Accessibility-authorized keyboard events.
 
 On first launch, Tippi downloads both the ASR model
 (`wcamon/catcher-asr-mlx-int8`, ≈628 MiB) and the diarization model
 (`wcamon/catcher-diar-mlx-int8`, ≈121 MiB) behind a single merged progress
 bar, verifies pinned SHA-256 hashes, and installs them atomically under its
-sandboxed Application Support directory. The app contains no Hugging Face
-token.
+Application Support directory. The app contains no Hugging Face token.
 
 The window has two tabs: **轉錄** (Transcription), described below, and
-**語音輸入** (Voice Input), a placeholder screen reserved for a later
-sub-project.
+**語音輸入** (Voice Input), which injects live speech recognition into the
+currently focused control in another app.
 
 Inside the **轉錄** tab:
 
@@ -105,6 +105,48 @@ semantics — see the C ABI section below) and clears the banner on success.
 
 If microphone access is denied, use Tippi's **Microphone Settings** action or
 open System Settings → Privacy & Security → Microphone.
+
+## Voice Input
+
+Voice Input sends the same 16 kHz microphone stream to two local models. The
+main Catcher ASR model produces the text to inject. A second, smaller offline
+[`sherpa-onnx`](https://github.com/k2-fsa/sherpa-onnx) keyword-spotting model
+detects the fixed `Tippi Go` command without sending audio to a cloud service.
+Tippi downloads and verifies the pinned keyword model when this tab is first
+prepared.
+
+To use it:
+
+1. 打開「語音輸入」分頁，等待 Catcher 與 Tippi Go 模型就緒。
+2. 授予 Tippi「系統設定 → 隱私權與安全性 → 輔助使用」權限。
+3. 按「開始語音輸入」，切到目標 App 並點進輸入框。
+4. 說出內容；最後說「Tippi Go」送出。
+5. Tippi Go 不會進入輸入框。停止按鈕不會自動送出未完成內容。
+
+Tippi injects text as Unicode keyboard events and presses Return exactly once
+when the command is accepted; it does not use or replace the clipboard. Keep
+the intended target app and input field focused while speaking. Version 1 does
+not find or focus a text field automatically, and a command spoken while Tippi
+itself is frontmost is discarded rather than deferred. Switch back to the
+target input field and say `Tippi Go` again.
+
+Downloaded models live at:
+
+```text
+~/Library/Application Support/Tippi/Models
+```
+
+This directory contains the Catcher ASR, diarization, and sherpa-onnx keyword
+model subdirectories. When upgrading from the earlier sandboxed build, Tippi
+migrates an existing model directory from
+`~/Library/Containers/com.wcamon.tippi/Data/Library/Application Support/Tippi/Models`
+when the new destination is absent or empty, so the large Catcher models do not
+need to be downloaded again. It does not overwrite a non-empty destination.
+
+The **轉錄** and **語音輸入** modes share one microphone recorder and cannot
+record at the same time. Voice Input is append-only within each spoken turn: it
+does not move the target cursor, select text, or correct edits made in the
+target field while recognition is active.
 
 ## Catcher CLI
 
@@ -226,8 +268,12 @@ Measurements are hardware- and workload-specific.
 - Apple Silicon macOS only;
 - greedy RNNT search with at most ten emitted symbols per encoder frame;
 - one active utterance per Catcher handle;
-- no global shortcut, text injection, transcript history, App Store signing, or
-  notarization in the first Tippi release;
+- no global shortcut, transcript history, custom voice command, command
+  sensitivity UI, App Store signing, or notarization in the first Tippi
+  release;
+- Voice Input requires Accessibility permission, a compatible focused text
+  control, and the fixed `Tippi Go` command; it does not automatically focus or
+  inspect the destination field;
 - the INT8 artifact has exact-token reference coverage but not yet a complete
   multilingual WER evaluation.
 
