@@ -213,13 +213,27 @@ struct TranscriptionTabView: View {
 
     private func exportTranscript() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
+        panel.allowedContentTypes = [.plainText, .json]
         panel.nameFieldStringValue = "Tippi 逐字稿.txt"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try Data(fullTranscript.utf8).write(to: url)
+            try exportData(for: url).write(to: url)
         } catch {
-            NSSound.beep()
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "匯出失敗"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
         }
+    }
+
+    private func exportData(for url: URL) throws -> Data {
+        if url.pathExtension.lowercased() == "json" {
+            return try TranscriptJSONExporter.data(
+                messages: controller.messages,
+                names: controller.speakerNames
+            )
+        }
+        return Data(fullTranscript.utf8)
     }
 }
