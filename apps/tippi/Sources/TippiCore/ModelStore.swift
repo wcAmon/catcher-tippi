@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 public protocol ModelDownloading: Sendable {
@@ -92,7 +91,7 @@ public actor ModelStore {
                     let downloaded = Double(completedBefore) + localProgress * Double(file.byteCount)
                     progress(downloaded / totalBytes)
                 }
-                guard try sha256(of: target) == file.sha256 else {
+                guard try ModelChecksum.sha256(of: target) == file.sha256 else {
                     throw ModelStoreError.invalidChecksum(file: file.name)
                 }
                 completedBytes += file.byteCount
@@ -119,24 +118,16 @@ public actor ModelStore {
         }
         for file in files where file.required {
             let url = directory.appending(path: file.name)
-            guard fileManager.fileExists(atPath: url.path), try sha256(of: url) == file.sha256 else {
+            guard fileManager.fileExists(atPath: url.path),
+                  try ModelChecksum.sha256(of: url) == file.sha256
+            else {
                 return false
             }
         }
         return true
     }
 
-    private func sha256(of url: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        var digest = SHA256()
-        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
-            digest.update(data: data)
-        }
-        return digest.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func defaultRootDirectory(fileManager: FileManager) -> URL {
+    public static func defaultRootDirectory(fileManager: FileManager) -> URL {
         let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

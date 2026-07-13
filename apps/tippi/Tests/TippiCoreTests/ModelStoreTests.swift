@@ -142,6 +142,19 @@ func diarizationManifestPinsSevenFilesAndTotalBytes() {
         == "a02b1a83ceb6c1f9cf048ab3420c86c84421b0f4e64c433da75b506411445987")
 }
 
+@Test
+func modelChecksumStreamsAcrossReadChunkBoundaries() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let payload = Data(repeating: 0xA5, count: 1_048_577)
+    let file = root.appending(path: "large-model.bin")
+    try payload.write(to: file)
+
+    #expect(try ModelChecksum.sha256(of: file) == sha256(payload))
+}
+
 private func sha256(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
