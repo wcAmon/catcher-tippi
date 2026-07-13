@@ -2,27 +2,40 @@ import Foundation
 import Testing
 @testable import TippiCore
 
-private actor FakeInstaller: ModelInstalling {
-    let url: URL
-    init(url: URL) { self.url = url }
-    func installIfNeeded(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+private actor FakeInstaller: ModelBundleInstalling {
+    let bundle: ModelBundle
+    init(bundle: ModelBundle) { self.bundle = bundle }
+    func installIfNeeded(
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> ModelBundle {
         progress(0.5)
         progress(1.0)
-        return url
+        return bundle
     }
 }
 
 private actor FakeCatcher: CatcherServing {
     private(set) var events: [String] = []
+    private var pushUpdates: [TranscriptUpdate?] = []
+    private var finishUpdate = TranscriptUpdate(segments: [], warning: nil)
+
     func start() async throws { events.append("start") }
-    func push(_ samples: [Float]) async throws -> String? {
+
+    func push(_ samples: [Float]) async throws -> TranscriptUpdate? {
         events.append("push:\(samples.count)")
-        return "live words"
+        return pushUpdates.isEmpty ? nil : pushUpdates.removeFirst()
     }
-    func finish() async throws -> String {
+
+    func finish() async throws -> TranscriptUpdate {
         events.append("finish")
-        return "final words"
+        return finishUpdate
     }
+
+    func script(pushes: [TranscriptUpdate?], finish: TranscriptUpdate) {
+        pushUpdates = pushes
+        finishUpdate = finish
+    }
+
     func snapshot() -> [String] { events }
 }
 
@@ -44,17 +57,42 @@ private actor FakeAudio: AudioRecording {
 
     func emit(_ samples: [Float]) { sink?(samples) }
     func snapshot() -> [String] { events }
+    func setStartError(_ error: any Error) { startError = error }
 }
 
 private enum TestFailure: Error { case microphone }
 
+private let testBundle = ModelBundle(
+    asr: URL(fileURLWithPath: "/tmp/asr"),
+    diar: URL(fileURLWithPath: "/tmp/diar")
+)
+
+private func segment(
+    _ speaker: Int, _ startMs: UInt64, _ text: String, final isFinal: Bool
+) -> SpeakerSegment {
+    SpeakerSegment(speaker: speaker, startMs: startMs, endMs: startMs + 80, text: text, isFinal: isFinal)
+}
+
 @MainActor
 @Test
-func recordingTogglePublishesPartialThenFinalText() async throws {
+func recordingPublishesMessagesThenFinalizesOnStop() async throws {
     let catcher = FakeCatcher()
+    await catcher.script(
+        pushes: [TranscriptUpdate(
+            segments: [segment(0, 400, "今天先討論這個。", final: false)],
+            warning: nil
+        )],
+        finish: TranscriptUpdate(
+            segments: [
+                segment(0, 400, "今天先討論這個。", final: true),
+                segment(1, 2080, "好。", final: true),
+            ],
+            warning: nil
+        )
+    )
     let audio = FakeAudio()
     let controller = TranscriptionController(
-        modelInstaller: FakeInstaller(url: URL(fileURLWithPath: "/tmp/model")),
+        modelInstaller: FakeInstaller(bundle: testBundle),
         audio: audio,
         catcherFactory: { _ in catcher }
     )
@@ -65,13 +103,51 @@ func recordingTogglePublishesPartialThenFinalText() async throws {
     #expect(controller.state == .recording)
     await audio.emit([0.1, 0.2, 0.3])
     try await Task.sleep(for: .milliseconds(20))
-    #expect(controller.text == "live words")
+    #expect(controller.messages == [
+        Message(id: 0, speaker: 0, startMs: 400, text: "今天先討論這個。", isFinal: false)
+    ])
 
     await controller.toggleRecording()
     #expect(controller.state == .ready)
-    #expect(controller.text == "final words")
-    #expect(await audio.snapshot() == ["start", "stop"])
+    #expect(controller.messages.count == 2)
+    #expect(controller.messages.allSatisfy { $0.isFinal })
+    #expect(controller.messages[1].speaker == 1)
     #expect(await catcher.snapshot() == ["start", "push:3", "finish"])
+}
+
+@MainActor
+@Test
+func warningIsPublishedAndClearedOnNextRecording() async throws {
+    let catcher = FakeCatcher()
+    await catcher.script(
+        pushes: [TranscriptUpdate(
+            segments: [segment(0, 0, "喂?", final: false)],
+            warning: "diarization disabled after a runtime error: injected"
+        )],
+        finish: TranscriptUpdate(segments: [segment(0, 0, "喂?", final: true)], warning: nil)
+    )
+    let audio = FakeAudio()
+    let controller = TranscriptionController(
+        modelInstaller: FakeInstaller(bundle: testBundle),
+        audio: audio,
+        catcherFactory: { _ in catcher }
+    )
+    await controller.prepare()
+
+    await controller.toggleRecording()
+    await audio.emit([0.1])
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(controller.warningMessage == "diarization disabled after a runtime error: injected")
+    await controller.toggleRecording()
+    #expect(controller.warningMessage == nil)
+
+    // 新錄音清空訊息、命名與警告。
+    controller.speakerNames[0] = "小明"
+    await controller.toggleRecording()
+    #expect(controller.messages.isEmpty)
+    #expect(controller.speakerNames.isEmpty)
+    #expect(controller.warningMessage == nil)
+    await controller.toggleRecording()
 }
 
 @MainActor
@@ -81,7 +157,7 @@ func microphoneFailureLeavesRecordingOffAndCanBeRetried() async {
     let audio = FakeAudio()
     await audio.setStartError(TestFailure.microphone)
     let controller = TranscriptionController(
-        modelInstaller: FakeInstaller(url: URL(fileURLWithPath: "/tmp/model")),
+        modelInstaller: FakeInstaller(bundle: testBundle),
         audio: audio,
         catcherFactory: { _ in catcher }
     )
@@ -94,10 +170,4 @@ func microphoneFailureLeavesRecordingOffAndCanBeRetried() async {
         return
     }
     #expect(!controller.isRecording)
-}
-
-private extension FakeAudio {
-    func setStartError(_ error: any Error) {
-        startError = error
-    }
 }

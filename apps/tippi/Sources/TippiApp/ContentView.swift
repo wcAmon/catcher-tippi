@@ -40,15 +40,19 @@ struct ContentView: View {
     }
 
     private var transcript: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let transcriptText = TranscriptFormatter.transcript(
+            messages: controller.messages,
+            names: controller.speakerNames
+        )
+        return VStack(alignment: .leading, spacing: 12) {
             Text("TRANSCRIPT")
                 .font(.caption.weight(.semibold))
                 .tracking(1.2)
                 .foregroundStyle(.secondary)
             ScrollView {
-                Text(controller.text.isEmpty ? placeholder : controller.text)
+                Text(transcriptText.isEmpty ? placeholder : transcriptText)
                     .font(.system(size: 23, weight: .regular, design: .rounded))
-                    .foregroundStyle(controller.text.isEmpty ? .tertiary : .primary)
+                    .foregroundStyle(transcriptText.isEmpty ? .tertiary : .primary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.vertical, 4)

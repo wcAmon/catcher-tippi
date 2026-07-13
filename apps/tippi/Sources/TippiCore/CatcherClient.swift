@@ -3,8 +3,8 @@ import Foundation
 
 public protocol CatcherServing: Sendable {
     func start() async throws
-    func push(_ samples: [Float]) async throws -> String?
-    func finish() async throws -> String
+    func push(_ samples: [Float]) async throws -> TranscriptUpdate?
+    func finish() async throws -> TranscriptUpdate
 }
 
 public enum CatcherClientError: Error, LocalizedError {
@@ -28,10 +28,17 @@ private final class CatcherHandleOwner: @unchecked Sendable {
 public actor CatcherClient: CatcherServing {
     private let owner: CatcherHandleOwner
 
-    public init(modelDirectory: URL, language: String = "auto", lookahead: UInt32 = 3) throws {
+    public init(
+        modelDirectory: URL,
+        diarModelDirectory: URL,
+        language: String = "auto",
+        lookahead: UInt32 = 3
+    ) throws {
         let pointer = modelDirectory.path.withCString { modelPath in
-            language.withCString { languageCode in
-                catcher_create(modelPath, nil, languageCode, lookahead)
+            diarModelDirectory.path.withCString { diarPath in
+                language.withCString { languageCode in
+                    catcher_create(modelPath, diarPath, languageCode, lookahead)
+                }
             }
         }
         guard let pointer else {
@@ -44,28 +51,35 @@ public actor CatcherClient: CatcherServing {
         try check(catcher_start(owner.pointer), allowNoUpdate: false)
     }
 
-    public func push(_ samples: [Float]) async throws -> String? {
+    public func push(_ samples: [Float]) async throws -> TranscriptUpdate? {
         let status = samples.withUnsafeBufferPointer { buffer in
             catcher_push_audio(owner.pointer, buffer.baseAddress, buffer.count)
         }
         if status == CATCHER_NO_UPDATE { return nil }
         try check(status, allowNoUpdate: false)
-        return currentText()
+        return try currentUpdate()
     }
 
-    public func finish() async throws -> String {
+    public func finish() async throws -> TranscriptUpdate {
         try check(catcher_finish(owner.pointer), allowNoUpdate: true)
-        return currentText()
+        return try currentUpdate()
+    }
+
+    private func currentUpdate() throws -> TranscriptUpdate {
+        let json = catcher_segments(owner.pointer).map { String(cString: $0) } ?? "[]"
+        let segments: [SpeakerSegment]
+        do {
+            segments = try SpeakerSegment.decodeArray(from: json)
+        } catch {
+            throw CatcherClientError.operationFailed("segments JSON decode failed: \(error)")
+        }
+        let warning = catcher_warning(owner.pointer).map { String(cString: $0) }
+        return TranscriptUpdate(segments: segments, warning: warning)
     }
 
     private func check(_ status: Int32, allowNoUpdate: Bool) throws {
         if status == CATCHER_OK || (allowNoUpdate && status == CATCHER_NO_UPDATE) { return }
         throw CatcherClientError.operationFailed(currentError())
-    }
-
-    private func currentText() -> String {
-        guard let pointer = catcher_text(owner.pointer) else { return "" }
-        return String(cString: pointer)
     }
 
     private func currentError() -> String {
