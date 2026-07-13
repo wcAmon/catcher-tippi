@@ -4,8 +4,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use catcher_ffi::{
     CATCHER_INVALID_ARGUMENT, CATCHER_INVALID_STATE, CATCHER_NO_UPDATE, CATCHER_OK, catcher_create,
-    catcher_destroy, catcher_finish, catcher_last_error, catcher_push_audio, catcher_segments,
-    catcher_start, catcher_text, catcher_warning,
+    catcher_destroy, catcher_finish, catcher_finish_before, catcher_last_error, catcher_push_audio,
+    catcher_segments, catcher_start, catcher_text, catcher_warning,
 };
 
 /// MLX evaluates onto a process-global Metal command buffer that is not safe
@@ -42,6 +42,10 @@ fn null_arguments_report_errors_without_unwinding() {
             CATCHER_INVALID_ARGUMENT
         );
         assert_eq!(catcher_finish(ptr::null_mut()), CATCHER_INVALID_ARGUMENT);
+        assert_eq!(
+            catcher_finish_before(ptr::null_mut(), 1_000),
+            CATCHER_INVALID_ARGUMENT
+        );
         assert!(catcher_text(ptr::null()).is_null());
         assert!(!catcher_last_error(ptr::null()).is_null());
         catcher_destroy(ptr::null_mut());

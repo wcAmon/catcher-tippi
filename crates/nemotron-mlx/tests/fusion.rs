@@ -193,6 +193,22 @@ fn reset_clears_everything() {
 }
 
 #[test]
+fn retain_tokens_before_ms_removes_command_tail() {
+    let mut fusion = Fusion::new(FusionConfig::default());
+    fusion.push_tokens(&[
+        TimedToken { id: 10, frame: 2 },
+        TimedToken { id: 11, frame: 10 },
+        TimedToken { id: 12, frame: 15 },
+    ]);
+    fusion.retain_tokens_before_ms(1_000);
+    fusion.flush();
+
+    let segments = fusion.segments(|ids| format!("{ids:?}"));
+    assert_eq!(segments.len(), 1);
+    assert_eq!(segments[0].text, "[10, 11]");
+}
+
+#[test]
 fn segment_times_derive_from_frames() {
     let mut fusion = Fusion::new(FusionConfig::default());
 

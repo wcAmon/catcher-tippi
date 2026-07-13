@@ -5,6 +5,7 @@ public protocol CatcherServing: Sendable {
     func start() async throws
     func push(_ samples: [Float]) async throws -> TranscriptUpdate?
     func finish() async throws -> TranscriptUpdate
+    func finish(before cutoffMs: UInt64) async throws -> TranscriptUpdate
 }
 
 public enum CatcherClientError: Error, LocalizedError {
@@ -65,7 +66,13 @@ public actor CatcherClient: CatcherServing {
         return try currentUpdate()
     }
 
+    public func finish(before cutoffMs: UInt64) async throws -> TranscriptUpdate {
+        try check(catcher_finish_before(owner.pointer, cutoffMs), allowNoUpdate: true)
+        return try currentUpdate()
+    }
+
     private func currentUpdate() throws -> TranscriptUpdate {
+        let text = catcher_text(owner.pointer).map { String(cString: $0) } ?? ""
         let json = catcher_segments(owner.pointer).map { String(cString: $0) } ?? "[]"
         let segments: [SpeakerSegment]
         do {
@@ -74,7 +81,7 @@ public actor CatcherClient: CatcherServing {
             throw CatcherClientError.operationFailed("segments JSON decode failed: \(error)")
         }
         let warning = catcher_warning(owner.pointer).map { String(cString: $0) }
-        return TranscriptUpdate(segments: segments, warning: warning)
+        return TranscriptUpdate(text: text, segments: segments, warning: warning)
     }
 
     private func check(_ status: Int32, allowNoUpdate: Bool) throws {

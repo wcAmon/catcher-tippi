@@ -33,10 +33,12 @@ public struct SpeakerSegment: Codable, Equatable, Sendable {
 
 /// What one successful push/finish call reports back to the UI layer.
 public struct TranscriptUpdate: Equatable, Sendable {
+    public let text: String
     public let segments: [SpeakerSegment]
     public let warning: String?
 
-    public init(segments: [SpeakerSegment], warning: String?) {
+    public init(text: String, segments: [SpeakerSegment], warning: String?) {
+        self.text = text
         self.segments = segments
         self.warning = warning
     }

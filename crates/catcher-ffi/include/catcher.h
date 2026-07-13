@@ -71,6 +71,7 @@ catcher_status_t catcher_push_audio(
     size_t count
 );
 catcher_status_t catcher_finish(catcher_handle_t *handle);
+catcher_status_t catcher_finish_before(catcher_handle_t *handle, uint64_t cutoff_ms);
 
 /*
  * Returns the current UTF-8 transcript owned by `handle`. The pointer is

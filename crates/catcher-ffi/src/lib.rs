@@ -20,6 +20,8 @@ pub const CATCHER_INVALID_ARGUMENT: i32 = -1;
 pub const CATCHER_INVALID_STATE: i32 = -2;
 pub const CATCHER_RUNTIME_ERROR: i32 = -3;
 
+const ASR_FRAME_MS: u64 = 80;
+
 thread_local! {
     static LAST_ERROR: RefCell<CString> = RefCell::new(empty_c_string());
 }
@@ -221,34 +223,17 @@ pub unsafe extern "C" fn catcher_push_audio(
 /// `handle` must be null or a live pointer returned by `catcher_create`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn catcher_finish(handle: *mut CatcherHandle) -> i32 {
-    unsafe {
-        with_handle_mut(handle, |handle| {
-            if handle.state != SessionState::Started {
-                return Err((
-                    CATCHER_INVALID_STATE,
-                    "catcher session is not recording".to_string(),
-                ));
-            }
-            let tokens = handle
-                .transcriber
-                .finish()
-                .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
-            let has_new_tokens = !tokens.is_empty();
-            if has_new_tokens {
-                handle.fusion.push_tokens(&tokens);
-                handle.timed_tokens.extend(tokens);
-            }
-            finish_diar(handle);
-            handle.fusion.flush();
-            handle.state = SessionState::Finished;
-            let segments_changed = rebuild_strings_and_report_segment_change(handle)?;
-            Ok(if has_new_tokens || segments_changed {
-                CATCHER_OK
-            } else {
-                CATCHER_NO_UPDATE
-            })
-        })
-    }
+    unsafe { with_handle_mut(handle, |handle| finish_session(handle, None)) }
+}
+
+/// Flushes the utterance and discards tokens at or after `cutoff_ms`.
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_create`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_finish_before(handle: *mut CatcherHandle, cutoff_ms: u64) -> i32 {
+    unsafe { with_handle_mut(handle, |handle| finish_session(handle, Some(cutoff_ms))) }
 }
 
 /// Returns the current UTF-8 transcript owned by `handle`.
@@ -366,6 +351,42 @@ pub unsafe extern "C" fn catcher_destroy(handle: *mut CatcherHandle) {
     if let Err(payload) = result {
         set_global_error(&panic_message(payload));
     }
+}
+
+fn finish_session(
+    handle: &mut CatcherHandle,
+    cutoff_ms: Option<u64>,
+) -> Result<i32, (i32, String)> {
+    if handle.state != SessionState::Started {
+        return Err((
+            CATCHER_INVALID_STATE,
+            "catcher session is not recording".to_string(),
+        ));
+    }
+    let tokens = handle
+        .transcriber
+        .finish()
+        .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
+    let has_new_tokens = !tokens.is_empty();
+    if has_new_tokens {
+        handle.fusion.push_tokens(&tokens);
+        handle.timed_tokens.extend(tokens);
+    }
+    finish_diar(handle);
+    if let Some(cutoff_ms) = cutoff_ms {
+        handle
+            .timed_tokens
+            .retain(|token| token.frame.saturating_mul(ASR_FRAME_MS) < cutoff_ms);
+        handle.fusion.retain_tokens_before_ms(cutoff_ms);
+    }
+    handle.fusion.flush();
+    handle.state = SessionState::Finished;
+    let segments_changed = rebuild_strings_and_report_segment_change(handle)?;
+    Ok(if has_new_tokens || segments_changed {
+        CATCHER_OK
+    } else {
+        CATCHER_NO_UPDATE
+    })
 }
 
 /// Pushes `samples` into the diarizer, if one is still attached. A runtime

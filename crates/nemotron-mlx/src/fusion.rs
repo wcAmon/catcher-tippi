@@ -95,6 +95,13 @@ impl Fusion {
         self.diar.extend_from_slice(frames);
     }
 
+    /// Discards tokens at or after the supplied wall-clock cutoff.
+    pub fn retain_tokens_before_ms(&mut self, cutoff_ms: u64) {
+        let frame_ms = self.cfg.frame_ms;
+        self.tokens
+            .retain(|token| token.frame.saturating_mul(frame_ms) < cutoff_ms);
+    }
+
     /// Marks every currently- and future-pushed token as decidable using
     /// whatever diarization frames exist at the time [`Fusion::segments`]
     /// is called. This is terminal for the *decidability rule* (it never

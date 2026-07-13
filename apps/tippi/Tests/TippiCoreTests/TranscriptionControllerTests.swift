@@ -17,7 +17,7 @@ private actor FakeInstaller: ModelBundleInstalling {
 private actor FakeCatcher: CatcherServing {
     private(set) var events: [String] = []
     private var pushUpdates: [TranscriptUpdate?] = []
-    private var finishUpdate = TranscriptUpdate(segments: [], warning: nil)
+    private var finishUpdate = TranscriptUpdate(text: "", segments: [], warning: nil)
 
     func start() async throws { events.append("start") }
 
@@ -28,6 +28,11 @@ private actor FakeCatcher: CatcherServing {
 
     func finish() async throws -> TranscriptUpdate {
         events.append("finish")
+        return finishUpdate
+    }
+
+    func finish(before cutoffMs: UInt64) async throws -> TranscriptUpdate {
+        events.append("finishBefore:\(cutoffMs)")
         return finishUpdate
     }
 
@@ -79,10 +84,12 @@ func recordingPublishesMessagesThenFinalizesOnStop() async throws {
     let catcher = FakeCatcher()
     await catcher.script(
         pushes: [TranscriptUpdate(
+            text: "今天先討論這個。",
             segments: [segment(0, 400, "今天先討論這個。", final: false)],
             warning: nil
         )],
         finish: TranscriptUpdate(
+            text: "今天先討論這個。好。",
             segments: [
                 segment(0, 400, "今天先討論這個。", final: true),
                 segment(1, 2080, "好。", final: true),
@@ -121,10 +128,15 @@ func warningIsPublishedAndClearedOnNextRecording() async throws {
     let catcher = FakeCatcher()
     await catcher.script(
         pushes: [TranscriptUpdate(
+            text: "喂?",
             segments: [segment(0, 0, "喂?", final: false)],
             warning: "diarization disabled after a runtime error: injected"
         )],
-        finish: TranscriptUpdate(segments: [segment(0, 0, "喂?", final: true)], warning: nil)
+        finish: TranscriptUpdate(
+            text: "喂?",
+            segments: [segment(0, 0, "喂?", final: true)],
+            warning: nil
+        )
     )
     let audio = FakeAudio()
     let controller = TranscriptionController(
@@ -178,10 +190,12 @@ func clearTranscriptClearsOnlyWhenReady() async throws {
     let catcher = FakeCatcher()
     await catcher.script(
         pushes: [TranscriptUpdate(
+            text: "今天先討論這個。",
             segments: [segment(0, 400, "今天先討論這個。", final: false)],
             warning: "diarization disabled after a runtime error: injected"
         )],
         finish: TranscriptUpdate(
+            text: "今天先討論這個。",
             segments: [segment(0, 400, "今天先討論這個。", final: true)],
             warning: "diarization disabled after a runtime error: injected"
         )
