@@ -10,6 +10,7 @@ struct MessageRow: View {
 
     @State private var isRenaming = false
     @State private var draftName = ""
+    @State private var isHoveringName = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -21,6 +22,7 @@ struct MessageRow: View {
                     Text(name)
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(accent)
+                        .underline(isHoveringName)
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $isRenaming, arrowEdge: .bottom) {
@@ -33,6 +35,8 @@ struct MessageRow: View {
                             isRenaming = false
                         }
                 }
+                .help("點擊可重新命名")
+                .onHover { isHoveringName = $0 }
                 Text(TranscriptFormatter.timestamp(forMs: message.startMs))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)

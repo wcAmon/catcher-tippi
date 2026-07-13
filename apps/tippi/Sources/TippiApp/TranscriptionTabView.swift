@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct TranscriptionTabView: View {
     @Bindable var controller: TranscriptionController
+    @State private var isConfirmingClear = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -21,6 +22,12 @@ struct TranscriptionTabView: View {
                 endPoint: .bottomTrailing
             )
         )
+        .alert("清除全部訊息?", isPresented: $isConfirmingClear) {
+            Button("清除", role: .destructive) { controller.clearTranscript() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("將移除所有訊息與說話者命名,無法復原。")
+        }
     }
 
     private var header: some View {
@@ -124,6 +131,8 @@ struct TranscriptionTabView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button("清除") { isConfirmingClear = true }
+                    .disabled(controller.state != .ready || controller.messages.isEmpty)
                 Button("複製全部") { copyAll() }
                     .disabled(controller.messages.isEmpty)
                 Button("匯出…") { exportTranscript() }
