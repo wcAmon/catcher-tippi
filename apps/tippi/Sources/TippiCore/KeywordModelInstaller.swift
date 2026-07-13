@@ -10,6 +10,10 @@ public protocol KeywordModelInstalling: Sendable {
     ) async throws -> URL
 }
 
+public protocol KeywordModelPromoting: Sendable {
+    func promote(staging: URL, to destination: URL, fileManager: FileManager) throws
+}
+
 public enum KeywordModelInstallerError: Error, LocalizedError {
     case invalidArchiveChecksum
     case missingRuntimeFile(String)
@@ -67,6 +71,23 @@ public struct TarArchiveExtractor: ArchiveExtracting {
     }
 }
 
+public struct AtomicKeywordModelPromoter: KeywordModelPromoting {
+    public init() {}
+
+    public func promote(staging: URL, to destination: URL, fileManager: FileManager) throws {
+        if fileManager.fileExists(atPath: destination.path) {
+            _ = try fileManager.replaceItemAt(
+                destination,
+                withItemAt: staging,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try fileManager.moveItem(at: staging, to: destination)
+        }
+    }
+}
+
 public actor KeywordModelInstaller: KeywordModelInstalling {
     static let thirdPartyNotice = """
         sherpa-onnx and the sherpa-onnx KWS model
@@ -80,6 +101,7 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
     private let manifest: KeywordModelArchive
     private let downloader: any ModelDownloading
     private let extractor: any ArchiveExtracting
+    private let promoter: any KeywordModelPromoting
     private let fileManager: FileManager
 
     public init(
@@ -87,6 +109,7 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
         manifest: KeywordModelArchive = KeywordModelManifest.release,
         downloader: any ModelDownloading = URLSessionModelDownloader(),
         extractor: any ArchiveExtracting = TarArchiveExtractor(),
+        promoter: any KeywordModelPromoting = AtomicKeywordModelPromoter(),
         fileManager: FileManager = .default
     ) {
         self.rootDirectory =
@@ -94,6 +117,7 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
         self.manifest = manifest
         self.downloader = downloader
         self.extractor = extractor
+        self.promoter = promoter
         self.fileManager = fileManager
     }
 
@@ -164,10 +188,11 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
                 throw KeywordModelInstallerError.incompleteInstallation
             }
 
-            if fileManager.fileExists(atPath: destination.path) {
-                try fileManager.removeItem(at: destination)
-            }
-            try fileManager.moveItem(at: partials.install, to: destination)
+            try promoter.promote(
+                staging: partials.install,
+                to: destination,
+                fileManager: fileManager
+            )
             try? fileManager.removeItem(at: partials.archive)
             try? fileManager.removeItem(at: partials.unpack)
             progress(1.0)

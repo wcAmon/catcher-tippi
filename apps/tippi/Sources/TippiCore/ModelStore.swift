@@ -127,7 +127,7 @@ public actor ModelStore {
         return true
     }
 
-    public static func defaultRootDirectory(fileManager: FileManager) -> URL {
+    public static func defaultRootDirectory(fileManager: FileManager = .default) -> URL {
         let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

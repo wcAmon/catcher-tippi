@@ -56,6 +56,16 @@ private actor KeywordArchiveExtractor: ArchiveExtracting {
     func calls() -> Int { callCount }
 }
 
+private enum KeywordPromotionFailure: Error {
+    case forced
+}
+
+private struct FailingKeywordModelPromoter: KeywordModelPromoting {
+    func promote(staging _: URL, to _: URL, fileManager _: FileManager) throws {
+        throw KeywordPromotionFailure.forced
+    }
+}
+
 private let keywordRuntimeNames = [
     "encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx",
     "decoder-epoch-13-avg-2-chunk-16-left-64.onnx",
@@ -205,6 +215,68 @@ func verifiedExistingInstallSkipsDownloadAndExtraction() async throws {
     #expect(installed == destination)
     #expect(await downloader.callCount() == 0)
     #expect(await extractor.calls() == 0)
+    assertNoKeywordPartials(root: fixture.root, directoryName: fixture.manifest.directoryName)
+}
+
+@Test
+func promotionFailurePreservesExistingDestinationAndCleansStaging() async throws {
+    let fixture = keywordInstallerFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let destination = fixture.root.appending(
+        path: fixture.manifest.directoryName,
+        directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    let marker = destination.appending(path: "existing-install.marker")
+    try Data("keep me".utf8).write(to: marker)
+    let downloader = KeywordArchiveDownloader(payload: fixture.archive)
+    let extractor = KeywordArchiveExtractor(
+        modelDirectoryName: fixture.manifest.directoryName,
+        payloads: fixture.payloads
+    )
+    let installer = KeywordModelInstaller(
+        rootDirectory: fixture.root,
+        manifest: fixture.manifest,
+        downloader: downloader,
+        extractor: extractor,
+        promoter: FailingKeywordModelPromoter()
+    )
+
+    await #expect(throws: KeywordPromotionFailure.self) {
+        _ = try await installer.installIfNeeded { _ in }
+    }
+
+    #expect(try Data(contentsOf: marker) == Data("keep me".utf8))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path)
+        == ["existing-install.marker"])
+    assertNoKeywordPartials(root: fixture.root, directoryName: fixture.manifest.directoryName)
+}
+
+@Test
+func atomicPromoterReplacesInvalidExistingDestination() async throws {
+    let fixture = keywordInstallerFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let destination = fixture.root.appending(
+        path: fixture.manifest.directoryName,
+        directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    try Data("old".utf8).write(to: destination.appending(path: "obsolete.bin"))
+    let installer = KeywordModelInstaller(
+        rootDirectory: fixture.root,
+        manifest: fixture.manifest,
+        downloader: KeywordArchiveDownloader(payload: fixture.archive),
+        extractor: KeywordArchiveExtractor(
+            modelDirectoryName: fixture.manifest.directoryName,
+            payloads: fixture.payloads
+        )
+    )
+
+    let installed = try await installer.installIfNeeded { _ in }
+
+    #expect(installed == destination)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).sorted()
+        == expectedInstalledKeywordFiles)
     assertNoKeywordPartials(root: fixture.root, directoryName: fixture.manifest.directoryName)
 }
 
