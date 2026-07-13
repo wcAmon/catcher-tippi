@@ -58,12 +58,35 @@ creates the standard `.app` bundle, embeds the dylib, normalizes `@rpath`, adds
 microphone/network sandbox entitlements, ad-hoc signs nested code and the app,
 then verifies the complete bundle.
 
+On first launch, Tippi downloads both the ASR model
+(`wcamon/catcher-asr-mlx-int8`, ≈628 MiB) and the diarization model
+(`wcamon/catcher-diar-mlx-int8`, ≈121 MiB) behind a single merged progress
+bar, verifies pinned SHA-256 hashes, and installs them atomically under its
+sandboxed Application Support directory. The app contains no Hugging Face
+token.
+
 Inside Tippi:
 
 1. Wait for the first-run model download and model-load status to reach Ready.
 2. Select **Start Recording** and grant microphone permission when macOS asks.
-3. Speak while partial text updates in the transcript area.
-4. Select **Stop Recording** to flush and retain the final text.
+3. Speak while the transcript renders as a speaker-attributed message list:
+   each message is tagged with its speaker (unnamed speakers show as
+   說話者 N), the most recent message grows in place as partial text arrives,
+   and a new message starts whenever the speaker changes. Click a speaker's
+   name to rename them; the rename applies retroactively across the whole
+   list.
+4. Select **Stop Recording** to flush and retain the final text. Starting a
+   new recording resets speaker names and messages.
+
+Use **複製全部** to copy the whole transcript, or **匯出…** to save it as a
+UTF-8 `.txt` file; either produces the same line-per-message format, e.g.
+`[03:24] 小明：今天先討論這個。`. Each message also offers **複製此則** to
+copy just that line.
+
+If diarization hits a runtime error, Tippi shows a non-blocking banner
+("說話者分離已暫停,文字繼續轉寫") and keeps transcribing; the next recording
+automatically attempts to rebuild the diarizer (`catcher_start`'s rebuild
+semantics — see the C ABI section below) and clears the banner on success.
 
 If microphone access is denied, use Tippi's **Microphone Settings** action or
 open System Settings → Privacy & Security → Microphone.
@@ -152,6 +175,14 @@ follow the same borrowed-pointer lifetime as `catcher_text`:
 `catcher_segments` returns the current speaker segments as a UTF-8 JSON array
 (`"[]"` when no diarization model was supplied), and `catcher_warning`
 returns a non-fatal diarization warning, or `NULL` when there is none.
+
+If the diarizer degrades to disabled after a runtime error, `catcher_start`
+attempts to rebuild it in place from the same `diar_model_path` given to
+`catcher_create` before starting the next utterance: a successful rebuild
+clears the warning and resumes diarization, while a failed rebuild is
+non-fatal and leaves the handle in ASR-only mode with a new warning
+describing the reload failure. `catcher_start` never fails outright for this
+reason alone.
 
 ## Validation
 
