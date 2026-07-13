@@ -11,5 +11,6 @@ struct ContentView: View {
             VoiceInputPlaceholderView()
                 .tabItem { Label("語音輸入", systemImage: "keyboard") }
         }
+        .frame(minWidth: 600, minHeight: 480)
     }
 }
