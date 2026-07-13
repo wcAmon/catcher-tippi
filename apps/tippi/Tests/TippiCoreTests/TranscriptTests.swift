@@ -24,8 +24,8 @@ func decodeFailureThrows() {
 
 @Test
 func formatsLinesWithNamesAndDefaults() {
-    let named = Message(id: 0, speaker: 0, startMs: 204_000, text: "今天先討論這個。", isFinal: true)
-    let unnamed = Message(id: 1, speaker: 1, startMs: 6_132_000, text: "好。", isFinal: true)
+    let named = Message(id: 0, speaker: 0, startMs: 204_000, endMs: 206_000, text: "今天先討論這個。", isFinal: true)
+    let unnamed = Message(id: 1, speaker: 1, startMs: 6_132_000, endMs: 6_133_000, text: "好。", isFinal: true)
     let names = [0: "小明"]
 
     #expect(TranscriptFormatter.line(for: named, names: names) == "[03:24] 小明：今天先討論這個。")
@@ -38,5 +38,5 @@ func formatsLinesWithNamesAndDefaults() {
 func messageIsBuiltFromSegment() {
     let segment = SpeakerSegment(speaker: 2, startMs: 80, endMs: 160, text: "喂?", isFinal: false)
     let message = Message(id: 5, segment: segment)
-    #expect(message == Message(id: 5, speaker: 2, startMs: 80, text: "喂?", isFinal: false))
+    #expect(message == Message(id: 5, speaker: 2, startMs: 80, endMs: 160, text: "喂?", isFinal: false))
 }

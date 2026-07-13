@@ -48,13 +48,15 @@ public struct Message: Identifiable, Equatable, Sendable {
     public let id: Int
     public let speaker: Int
     public let startMs: UInt64
+    public let endMs: UInt64
     public let text: String
     public let isFinal: Bool
 
-    public init(id: Int, speaker: Int, startMs: UInt64, text: String, isFinal: Bool) {
+    public init(id: Int, speaker: Int, startMs: UInt64, endMs: UInt64, text: String, isFinal: Bool) {
         self.id = id
         self.speaker = speaker
         self.startMs = startMs
+        self.endMs = endMs
         self.text = text
         self.isFinal = isFinal
     }
@@ -64,6 +66,7 @@ public struct Message: Identifiable, Equatable, Sendable {
             id: id,
             speaker: segment.speaker,
             startMs: segment.startMs,
+            endMs: segment.endMs,
             text: segment.text,
             isFinal: segment.isFinal
         )

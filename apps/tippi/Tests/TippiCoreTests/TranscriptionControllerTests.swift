@@ -104,7 +104,7 @@ func recordingPublishesMessagesThenFinalizesOnStop() async throws {
     await audio.emit([0.1, 0.2, 0.3])
     try await Task.sleep(for: .milliseconds(20))
     #expect(controller.messages == [
-        Message(id: 0, speaker: 0, startMs: 400, text: "今天先討論這個。", isFinal: false)
+        Message(id: 0, speaker: 0, startMs: 400, endMs: 480, text: "今天先討論這個。", isFinal: false)
     ])
 
     await controller.toggleRecording()
