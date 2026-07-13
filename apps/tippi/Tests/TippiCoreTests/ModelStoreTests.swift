@@ -110,6 +110,38 @@ func existingVerifiedModelSkipsNetwork() async throws {
     #expect(await downloader.callCount() == 0)
 }
 
+@Test
+func customDirectoryNameInstallsIntoThatDirectory() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let weights = Data("diar-weights".utf8)
+    let downloader = FakeDownloader(payloads: ["weights.safetensors": weights])
+    let store = ModelStore(
+        rootDirectory: root,
+        baseURL: URL(string: "https://example.test/diar/")!,
+        files: [ModelFile(name: "weights.safetensors", sha256: sha256(weights), required: true)],
+        directoryName: "catcher-diar-mlx-int8",
+        downloader: downloader
+    )
+
+    let installed = try await store.installIfNeeded { _ in }
+
+    #expect(installed.lastPathComponent == "catcher-diar-mlx-int8")
+    #expect(FileManager.default.fileExists(atPath: installed.appending(path: "weights.safetensors").path))
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".catcher-diar-mlx-int8.partial").path))
+}
+
+@Test
+func diarizationManifestPinsSevenFilesAndTotalBytes() {
+    let files = [ModelFile].diarizationRelease
+    #expect(files.count == 7)
+    #expect(files.allSatisfy { $0.required })
+    #expect(files.totalByteCount == 127_401_153)
+    #expect(files.first { $0.name == "weights.safetensors" }?.sha256
+        == "a02b1a83ceb6c1f9cf048ab3420c86c84421b0f4e64c433da75b506411445987")
+}
+
 private func sha256(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }

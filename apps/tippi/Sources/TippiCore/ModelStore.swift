@@ -37,23 +37,29 @@ public actor ModelStore {
         string: "https://huggingface.co/wcamon/catcher-asr-mlx-int8/resolve/main/"
     )!
 
+    public static let diarizationRepositoryURL = URL(
+        string: "https://huggingface.co/wcamon/catcher-diar-mlx-int8/resolve/main/"
+    )!
+
     private let rootDirectory: URL
     private let baseURL: URL
     private let files: [ModelFile]
     private let downloader: any ModelDownloading
     private let fileManager: FileManager
-    private let modelDirectoryName = "catcher-asr-mlx-int8"
+    private let modelDirectoryName: String
 
     public init(
         rootDirectory: URL? = nil,
         baseURL: URL = ModelStore.repositoryURL,
         files: [ModelFile] = .catcherRelease,
+        directoryName: String = "catcher-asr-mlx-int8",
         downloader: any ModelDownloading = URLSessionModelDownloader(),
         fileManager: FileManager = .default
     ) {
         self.rootDirectory = rootDirectory ?? Self.defaultRootDirectory(fileManager: fileManager)
         self.baseURL = baseURL
         self.files = files
+        self.modelDirectoryName = directoryName
         self.downloader = downloader
         self.fileManager = fileManager
     }
