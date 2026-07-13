@@ -51,31 +51,6 @@ public final class TranscriptionController {
         self.injectionCoordinator = injectionCoordinator
     }
 
-    /// Keeps the transcription-only app composition buildable until the voice-input UI
-    /// supplies its production dependencies explicitly.
-    public convenience init(
-        modelInstaller: any ModelBundleInstalling,
-        audio: any AudioRecording,
-        catcherFactory: @escaping CatcherFactory
-    ) {
-        let injector = CGEventTextInjector()
-        self.init(
-            modelInstaller: modelInstaller,
-            audio: audio,
-            catcherFactory: catcherFactory,
-            modelMigrator: ModelDirectoryMigrator(),
-            keywordInstaller: KeywordModelInstaller(),
-            keywordFactory: { directory in
-                try KeywordSpotterClient(modelDirectory: directory)
-            },
-            injectionCoordinator: TextInjectionCoordinator(
-                injector: injector,
-                targetProvider: FrontmostApplicationProvider(),
-                ownBundleIdentifier: "com.wcamon.tippi"
-            )
-        )
-    }
-
     public func prepare() async {
         if case .failed = state { state = .modelMissing }
         state = .downloading(0)
@@ -138,12 +113,6 @@ public final class TranscriptionController {
         default:
             break
         }
-    }
-
-    /// Temporary source compatibility for the transcription tab. The mode-specific API
-    /// is the ownership authority used by both tabs.
-    public func toggleRecording() async {
-        await toggleRecording(mode: .transcription)
     }
 
     public func isRecording(_ mode: RecordingMode) -> Bool {

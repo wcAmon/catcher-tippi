@@ -17,6 +17,14 @@ struct TippiApp: App {
             diarTotalBytes: [ModelFile].diarizationRelease.totalByteCount
         )
         let audio = AudioRecorder()
+        let injector = CGEventTextInjector()
+        let coordinator = TextInjectionCoordinator(
+            injector: injector,
+            targetProvider: FrontmostApplicationProvider(),
+            ownBundleIdentifier: "com.wcamon.tippi"
+        )
+        let keywordInstaller = KeywordModelInstaller()
+        let modelMigrator = ModelDirectoryMigrator()
         _controller = State(
             initialValue: TranscriptionController(
                 modelInstaller: bundleInstaller,
@@ -28,7 +36,13 @@ struct TippiApp: App {
                         language: "auto",
                         lookahead: 3
                     )
-                }
+                },
+                modelMigrator: modelMigrator,
+                keywordInstaller: keywordInstaller,
+                keywordFactory: { directory in
+                    try KeywordSpotterClient(modelDirectory: directory)
+                },
+                injectionCoordinator: coordinator
             )
         )
     }

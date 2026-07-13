@@ -14,13 +14,14 @@ swift build --package-path apps/tippi -c release --product Tippi
 BIN_PATH=$(swift build --package-path apps/tippi -c release --show-bin-path)
 
 rm -rf ${APP}
-mkdir -p ${CONTENTS}/MacOS ${CONTENTS}/Frameworks
+mkdir -p ${CONTENTS}/MacOS ${CONTENTS}/Frameworks ${CONTENTS}/Resources
 cp ${BIN_PATH}/Tippi ${CONTENTS}/MacOS/Tippi
 cp target/release/libcatcher_ffi.dylib ${CONTENTS}/Frameworks/
 METALLIB=$(find target/release/build -path '*/out/build/lib/mlx.metallib' -print -quit)
 test -n "${METALLIB}"
 cp ${METALLIB} ${CONTENTS}/Frameworks/mlx.metallib
 cp apps/tippi/Resources/Info.plist ${CONTENTS}/Info.plist
+cp apps/tippi/Resources/THIRD_PARTY_NOTICES.md ${CONTENTS}/Resources/
 print -n 'APPL????' > ${CONTENTS}/PkgInfo
 
 if otool -l ${CONTENTS}/MacOS/Tippi | grep -q "${ROOT}/target/release"; then

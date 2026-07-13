@@ -127,7 +127,11 @@ struct TranscriptionTabView: View {
             }
         default:
             HStack {
-                Text(controller.isRecording ? "Listening and transcribing…" : "Your audio stays on this Mac")
+                Text(
+                    controller.isRecording(.transcription)
+                        ? "Listening and transcribing…"
+                        : "Your audio stays on this Mac"
+                )
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -138,19 +142,19 @@ struct TranscriptionTabView: View {
                 Button("匯出…") { exportTranscript() }
                     .disabled(controller.messages.isEmpty)
                 Button {
-                    Task { await controller.toggleRecording() }
+                    Task { await controller.toggleRecording(mode: .transcription) }
                 } label: {
                     Label(
-                        controller.isRecording ? "Stop Recording" : "Start Recording",
-                        systemImage: controller.isRecording ? "stop.fill" : "mic.fill"
+                        controller.isRecording(.transcription) ? "Stop Recording" : "Start Recording",
+                        systemImage: controller.isRecording(.transcription) ? "stop.fill" : "mic.fill"
                     )
                     .font(.headline)
                     .frame(minWidth: 150)
                     .padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(controller.isRecording ? .red : .blue)
-                .disabled(controller.state != .ready && controller.state != .recording)
+                .tint(controller.isRecording(.transcription) ? .red : .blue)
+                .disabled(!controller.canToggle(.transcription))
                 .keyboardShortcut(.space, modifiers: [])
             }
         }
@@ -158,7 +162,8 @@ struct TranscriptionTabView: View {
 
     private var placeholder: String {
         switch controller.state {
-        case .recording: "Listening…"
+        case .recording where controller.isRecording(.transcription): "Listening…"
+        case .recording: "語音輸入正在使用麥克風。"
         default: "Turn recording on and start speaking."
         }
     }
