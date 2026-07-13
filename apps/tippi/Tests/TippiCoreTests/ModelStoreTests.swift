@@ -26,10 +26,17 @@ private actor FakeDownloader: ModelDownloading {
     func callCount() -> Int { calls.count }
 }
 
-private actor ProgressRecorder {
-    private(set) var values: [Double] = []
-    func append(_ value: Double) { values.append(value) }
-    func snapshot() -> [Double] { values }
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Double] = []
+
+    func append(_ value: Double) {
+        lock.withLock { values.append(value) }
+    }
+
+    func snapshot() -> [Double] {
+        lock.withLock { values }
+    }
 }
 
 @Test
@@ -56,12 +63,12 @@ func installsVerifiedFilesAtomicallyAndReportsMonotonicProgress() async throws {
     )
 
     let installed = try await store.installIfNeeded { value in
-        Task { await progress.append(value) }
+        progress.append(value)
     }
 
     #expect(FileManager.default.fileExists(atPath: installed.appending(path: "weights.safetensors").path))
     #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".catcher-asr-mlx-int8.partial").path))
-    let values = await progress.snapshot()
+    let values = progress.snapshot()
     #expect(values == values.sorted())
     #expect(values.contains(0.1875))
     #expect(values.last == 1.0)
