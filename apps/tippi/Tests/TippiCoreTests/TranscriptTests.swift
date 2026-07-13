@@ -28,10 +28,10 @@ func formatsLinesWithNamesAndDefaults() {
     let unnamed = Message(id: 1, speaker: 1, startMs: 6_132_000, text: "好。", isFinal: true)
     let names = [0: "小明"]
 
-    #expect(TranscriptFormatter.line(for: named, names: names) == "[03:24] 小明:今天先討論這個。")
-    #expect(TranscriptFormatter.line(for: unnamed, names: names) == "[102:12] 說話者 2:好。")
+    #expect(TranscriptFormatter.line(for: named, names: names) == "[03:24] 小明：今天先討論這個。")
+    #expect(TranscriptFormatter.line(for: unnamed, names: names) == "[102:12] 說話者 2：好。")
     #expect(TranscriptFormatter.transcript(messages: [named, unnamed], names: names)
-        == "[03:24] 小明:今天先討論這個。\n[102:12] 說話者 2:好。")
+        == "[03:24] 小明：今天先討論這個。\n[102:12] 說話者 2：好。")
 }
 
 @Test

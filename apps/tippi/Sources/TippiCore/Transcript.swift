@@ -80,11 +80,11 @@ public enum TranscriptFormatter {
 
     public static func timestamp(forMs milliseconds: UInt64) -> String {
         let totalSeconds = milliseconds / 1000
-        return String(format: "[%02d:%02d]", totalSeconds / 60, totalSeconds % 60)
+        return String(format: "[%02d:%02d]", Int(totalSeconds / 60), Int(totalSeconds % 60))
     }
 
     public static func line(for message: Message, names: [Int: String]) -> String {
-        "\(timestamp(forMs: message.startMs)) \(displayName(for: message.speaker, names: names)):\(message.text)"
+        "\(timestamp(forMs: message.startMs)) \(displayName(for: message.speaker, names: names))：\(message.text)"
     }
 
     public static func transcript(messages: [Message], names: [Int: String]) -> String {
