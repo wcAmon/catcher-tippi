@@ -12,6 +12,7 @@ public final class TranscriptionController {
     public private(set) var warningMessage: String?
     public private(set) var downloadProgress = 0.0
     public private(set) var activeMode: RecordingMode?
+    public private(set) var failedMode: RecordingMode?
     public private(set) var voiceInputPreparation: VoiceInputPreparationState = .notPrepared
     public private(set) var accessibilityTrusted = false
     public private(set) var targetApplicationName: String?
@@ -32,6 +33,7 @@ public final class TranscriptionController {
     @ObservationIgnored private var audioContinuation: AsyncStream<[Float]>.Continuation?
     @ObservationIgnored private var audioTask: Task<Void, Never>?
     @ObservationIgnored private var suppressImmediateDuplicateCommand = false
+    @ObservationIgnored private var receivedSampleCount: UInt64 = 0
 
     public init(
         modelInstaller: any ModelBundleInstalling,
@@ -52,6 +54,7 @@ public final class TranscriptionController {
     }
 
     public func prepare() async {
+        failedMode = nil
         if case .failed = state { state = .modelMissing }
         state = .downloading(0)
         do {
@@ -148,6 +151,7 @@ public final class TranscriptionController {
 
     private func startRecording(mode: RecordingMode) async {
         guard let catcher else { return }
+        failedMode = nil
         let spotter: (any KeywordSpotting)?
         switch mode {
         case .transcription:
@@ -175,7 +179,7 @@ public final class TranscriptionController {
             case .voiceInput:
                 lastInjectedText = ""
                 voiceInputMessage = "請切到目標輸入框"
-                injectionCoordinator.resetTurn()
+                resetVoiceTurn()
                 targetApplicationName = injectionCoordinator.currentTarget()?.name
             }
 
@@ -226,20 +230,24 @@ public final class TranscriptionController {
         catcher: any CatcherServing,
         keywordSpotter: any KeywordSpotting
     ) async throws {
-        let update = try await catcher.push(samples)
+        receivedSampleCount += UInt64(samples.count)
+        _ = try await catcher.push(samples)
         let detection = try await keywordSpotter.push(samples)
-        if let detection {
-            guard detection.keyword == "TIPPI_GO" else { return }
+        let cutoffMs = VoiceInputTiming.stableCutoffMs(
+            receivedSampleCount: receivedSampleCount
+        )
+
+        if let detection, detection.keyword == "TIPPI_GO" {
             if suppressImmediateDuplicateCommand {
                 // A detector can surface the same buffered command immediately after
                 // reset. Discard that audio from both engines without another Return.
                 try await catcher.start()
                 try await keywordSpotter.reset()
-                injectionCoordinator.resetTurn()
+                resetVoiceTurn()
                 return
             }
 
-            let final = try await catcher.finish(before: detection.startMs)
+            let final = try await catcher.finish(before: cutoffMs)
             let event = try injectionCoordinator.submit(final.text)
             applyInjectionEvent(event)
             if event == .waitingForTarget {
@@ -247,15 +255,14 @@ public final class TranscriptionController {
             }
             try await catcher.start()
             try await keywordSpotter.reset()
-            injectionCoordinator.resetTurn()
+            resetVoiceTurn()
             suppressImmediateDuplicateCommand = true
             return
         }
 
         suppressImmediateDuplicateCommand = false
-        if let update {
-            applyInjectionEvent(try injectionCoordinator.consume(update.text))
-        }
+        let stableText = try await catcher.text(before: cutoffMs)
+        applyInjectionEvent(try injectionCoordinator.consume(stableText))
     }
 
     private func stopRecording() async {
@@ -276,15 +283,16 @@ public final class TranscriptionController {
             case .voiceInput:
                 _ = try await catcher.finish()
                 try await keywordSpotter?.reset()
-                injectionCoordinator.resetTurn()
+                resetVoiceTurn()
             }
             suppressImmediateDuplicateCommand = false
             activeMode = nil
             state = .ready
         } catch {
+            failedMode = mode
             if mode == .voiceInput {
                 try? await keywordSpotter?.reset()
-                injectionCoordinator.resetTurn()
+                resetVoiceTurn()
             }
             suppressImmediateDuplicateCommand = false
             activeMode = nil
@@ -328,6 +336,7 @@ public final class TranscriptionController {
         catcherStarted: Bool,
         keywordSpotter: (any KeywordSpotting)?
     ) async {
+        let failedRecordingMode = activeMode
         await audio.stop()
         audioContinuation?.finish()
         audioContinuation = nil
@@ -339,9 +348,14 @@ public final class TranscriptionController {
             _ = try? await catcher.finish()
         }
         try? await keywordSpotter?.reset()
-        injectionCoordinator.resetTurn()
+        if failedRecordingMode == .voiceInput {
+            resetVoiceTurn()
+        } else {
+            injectionCoordinator.resetTurn()
+        }
         suppressImmediateDuplicateCommand = false
         activeMode = nil
+        failedMode = failedRecordingMode
         state = .failed(error.localizedDescription)
     }
 
@@ -350,6 +364,7 @@ public final class TranscriptionController {
         catcher: any CatcherServing,
         keywordSpotter: (any KeywordSpotting)?
     ) async {
+        let failedRecordingMode = activeMode
         state = .finishing
         await audio.stop()
         audioContinuation?.finish()
@@ -358,9 +373,19 @@ public final class TranscriptionController {
         audioTask = nil
         _ = try? await catcher.finish()
         try? await keywordSpotter?.reset()
-        injectionCoordinator.resetTurn()
+        if failedRecordingMode == .voiceInput {
+            resetVoiceTurn()
+        } else {
+            injectionCoordinator.resetTurn()
+        }
         suppressImmediateDuplicateCommand = false
         activeMode = nil
+        failedMode = failedRecordingMode
         state = .failed(error.localizedDescription)
+    }
+
+    private func resetVoiceTurn() {
+        receivedSampleCount = 0
+        injectionCoordinator.resetTurn()
     }
 }

@@ -180,6 +180,7 @@ private actor FakeKeywordSpotter: KeywordSpotting {
     func script(_ values: [KeywordDetection?]) { detections = values }
     func failStart(with error: TestFailure) { startError = error }
     func failPush(with error: TestFailure) { pushError = error }
+    func clearPushError() { pushError = nil }
     func failReset(with error: TestFailure) { resetError = error }
     func snapshot() -> [String] { events }
 
@@ -371,6 +372,17 @@ private func waitUntil(
     }
 }
 
+@Test(arguments: zip(
+    [UInt64(0), 23_999, 24_000, 40_000],
+    [UInt64(0), 0, 0, 1_000]
+))
+func stableCutoffUsesSixteenKilohertzSampleClock(
+    sampleCount: UInt64,
+    expected: UInt64
+) {
+    #expect(VoiceInputTiming.stableCutoffMs(receivedSampleCount: sampleCount) == expected)
+}
+
 @MainActor
 @Test
 func recordingPublishesMessagesThenFinalizesOnStop() async throws {
@@ -537,44 +549,187 @@ func voiceModeFansEachAudioChunkToAsrAndKws() async throws {
         "audio.start",
         "asr.push",
         "kws.push",
+        "asr.textBefore:0",
     ])
     await fixture.controller.toggleRecording(mode: .voiceInput)
 }
 
 @MainActor
-@Test
-func commandCutsOffInjectsSubmitsAndResetsInOrder() async throws {
+@Test(arguments: [UInt64(0), 320, 960])
+func commandCutoffUsesSampleClockInsteadOfKwsTimestamp(startMs: UInt64) async throws {
     let log = EventLog()
     let fixture = makeFixture(log: log)
     await fixture.catcher.script(
         finishBefore: TranscriptUpdate(text: "你好", segments: [], warning: nil)
     )
     await fixture.keywordSpotter.script([
-        KeywordDetection(keyword: "TIPPI_GO", startMs: 960)
+        KeywordDetection(keyword: "TIPPI_GO", startMs: startMs)
     ])
     await prepareVoiceFixture(fixture)
     log.removeAll()
 
     await fixture.controller.toggleRecording(mode: .voiceInput)
-    await fixture.audio.emit([0.1])
+    await fixture.audio.emit([Float](repeating: 0, count: 40_000))
     try await waitUntil { log.snapshot().contains("kws.reset") }
 
-    #expect(log.snapshot() == [
-        "asr.start",
-        "kws.start",
-        "audio.start",
-        "asr.push",
-        "kws.push",
-        "asr.finishBefore:960",
-        "inject:你好",
-        "submit",
-        "asr.start",
-        "kws.reset",
-    ])
-    #expect(fixture.controller.lastInjectedText == "你好")
-    #expect(fixture.controller.voiceInputMessage == "已送出")
-    #expect(fixture.controller.activeMode == .voiceInput)
+    #expect(log.snapshot().contains("asr.finishBefore:1000"))
+    if startMs != 1_000 {
+        #expect(!log.snapshot().contains("asr.finishBefore:\(startMs)"))
+    }
+    #expect(fixture.injector.injected == ["你好"])
+    #expect(fixture.injector.submitCount == 1)
     await fixture.controller.toggleRecording(mode: .voiceInput)
+}
+
+@MainActor
+@Test
+func heldTextBecomesInjectableAsSilenceAdvancesTheClock() async throws {
+    let log = EventLog()
+    let fixture = makeFixture(log: log)
+    await fixture.catcher.script(
+        pushes: [TranscriptUpdate(text: "你好", segments: [], warning: nil), nil],
+        stableTexts: ["", "你好"]
+    )
+    await fixture.keywordSpotter.script([nil, nil])
+    await prepareVoiceFixture(fixture)
+    log.removeAll()
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 16_000))
+    try await waitUntil { log.snapshot().contains("asr.textBefore:0") }
+    #expect(fixture.injector.injected.isEmpty)
+
+    await fixture.audio.emit([Float](repeating: 0, count: 16_000))
+    try await waitUntil { log.snapshot().contains("asr.textBefore:500") }
+    #expect(fixture.injector.injected == ["你好"])
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+}
+
+@MainActor
+@Test
+func commandResetStartsTheNextTurnAtZeroMilliseconds() async throws {
+    let log = EventLog()
+    let fixture = makeFixture(log: log)
+    await fixture.catcher.script(
+        pushes: [nil],
+        stableTexts: [""],
+        finishBefore: TranscriptUpdate(text: "第一輪", segments: [], warning: nil)
+    )
+    await fixture.keywordSpotter.script([
+        KeywordDetection(keyword: "TIPPI_GO", startMs: 320),
+        nil,
+    ])
+    await prepareVoiceFixture(fixture)
+    log.removeAll()
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 40_000))
+    try await waitUntil { fixture.injector.submitCount == 1 }
+    await fixture.audio.emit([Float](repeating: 0, count: 16_000))
+    try await waitUntil { log.snapshot().contains("asr.textBefore:0") }
+
+    #expect(log.snapshot().filter { $0 == "asr.finishBefore:1000" }.count == 1)
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+}
+
+@MainActor
+@Test
+func commandInsideInitialHoldbackDoesNotPressReturn() async throws {
+    let fixture = makeFixture()
+    await fixture.catcher.script(
+        finishBefore: TranscriptUpdate(text: "", segments: [], warning: nil)
+    )
+    await fixture.keywordSpotter.script([
+        KeywordDetection(keyword: "TIPPI_GO", startMs: 960)
+    ])
+    await prepareVoiceFixture(fixture)
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 16_000))
+    try await waitUntil { fixture.controller.voiceInputMessage == "沒有可送出的文字" }
+
+    #expect(fixture.injector.injected.isEmpty)
+    #expect(fixture.injector.submitCount == 0)
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+}
+
+@MainActor
+@Test
+func streamFailureAndRetryResetTheSampleClock() async throws {
+    let log = EventLog()
+    let fixture = makeFixture(log: log)
+    await fixture.keywordSpotter.failPush(with: .keyword)
+    await prepareVoiceFixture(fixture)
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 40_000))
+    try await waitUntil { fixture.controller.state == .failed("keyword failed") }
+
+    await fixture.keywordSpotter.clearPushError()
+    await fixture.keywordSpotter.script([
+        KeywordDetection(keyword: "TIPPI_GO", startMs: 320)
+    ])
+    await fixture.catcher.script(
+        finishBefore: TranscriptUpdate(text: "", segments: [], warning: nil)
+    )
+    await fixture.controller.prepare()
+    log.removeAll()
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 16_000))
+    try await waitUntil { log.snapshot().contains("asr.finishBefore:0") }
+
+    #expect(fixture.injector.submitCount == 0)
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+}
+
+@MainActor
+@Test
+func stopAndRestartResetTheSampleClock() async throws {
+    let log = EventLog()
+    let fixture = makeFixture(log: log)
+    await fixture.catcher.script(pushes: [nil], stableTexts: [""])
+    await fixture.keywordSpotter.script([nil])
+    await prepareVoiceFixture(fixture)
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 40_000))
+    try await waitUntil { log.snapshot().contains("asr.textBefore:1000") }
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+
+    await fixture.catcher.script(
+        finishBefore: TranscriptUpdate(text: "", segments: [], warning: nil)
+    )
+    await fixture.keywordSpotter.script([
+        KeywordDetection(keyword: "TIPPI_GO", startMs: 960)
+    ])
+    log.removeAll()
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 16_000))
+    try await waitUntil { log.snapshot().contains("asr.finishBefore:0") }
+
+    #expect(fixture.injector.submitCount == 0)
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+}
+
+@MainActor
+@Test
+func stableSnapshotFailureStopsVoiceInputWithoutSubmitting() async throws {
+    let fixture = makeFixture()
+    await fixture.catcher.failTextBefore(with: .inference)
+    await fixture.keywordSpotter.script([nil])
+    await prepareVoiceFixture(fixture)
+
+    await fixture.controller.toggleRecording(mode: .voiceInput)
+    await fixture.audio.emit([Float](repeating: 0, count: 40_000))
+    try await waitUntil { fixture.controller.state == .failed("inference failed") }
+
+    #expect(fixture.controller.failedMode == .voiceInput)
+    #expect(fixture.controller.activeMode == nil)
+    #expect(fixture.injector.injected.isEmpty)
+    #expect(fixture.injector.submitCount == 0)
+    #expect(await fixture.audio.snapshot() == ["start", "stop"])
 }
 
 @MainActor
@@ -587,6 +742,7 @@ func duplicateCommandDoesNotSubmitTwice() async throws {
             nil,
             TranscriptUpdate(text: "第二輪", segments: [], warning: nil),
         ],
+        stableTexts: ["第二輪"],
         finishBefore: TranscriptUpdate(text: "第一輪", segments: [], warning: nil)
     )
     let command = KeywordDetection(keyword: "TIPPI_GO", startMs: 960)
@@ -628,7 +784,7 @@ func voiceStopDoesNotInjectOrSubmitTrailingText() async throws {
     #expect(fixture.injector.submitCount == 0)
     #expect(fixture.controller.state == .ready)
     #expect(fixture.controller.activeMode == nil)
-    #expect(await fixture.catcher.snapshot() == ["start", "push:1", "finish"])
+    #expect(await fixture.catcher.snapshot() == ["start", "push:1", "textBefore:0", "finish"])
     #expect(await fixture.keywordSpotter.snapshot() == ["start", "push", "reset"])
 }
 
