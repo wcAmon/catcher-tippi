@@ -18,10 +18,19 @@ private actor ScriptedInstaller: ModelInstalling {
     }
 }
 
-private actor ProgressRecorder {
-    private(set) var values: [Double] = []
-    func append(_ value: Double) { values.append(value) }
-    func snapshot() -> [Double] { values }
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Double] = []
+    func append(_ value: Double) {
+        lock.lock()
+        defer { lock.unlock() }
+        values.append(value)
+    }
+    func snapshot() -> [Double] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
 }
 
 private enum TestFailure: Error { case download }
@@ -38,15 +47,14 @@ func mergesProgressWeightedByBytes() async throws {
     let recorder = ProgressRecorder()
 
     let bundle = try await installer.installIfNeeded { value in
-        Task { await recorder.append(value) }
+        recorder.append(value)
     }
-    try await Task.sleep(for: .milliseconds(20))
 
     #expect(bundle == ModelBundle(
         asr: URL(fileURLWithPath: "/tmp/asr"),
         diar: URL(fileURLWithPath: "/tmp/diar")
     ))
-    let values = await recorder.snapshot()
+    let values = recorder.snapshot()
     #expect(values == values.sorted())
     #expect(values.contains(0.375))   // ASR 一半:0.5 × 0.75
     #expect(values.contains(0.75))    // ASR 完成
@@ -65,11 +73,10 @@ func alreadyInstalledAsrJumpsStraightToItsShare() async throws {
     let recorder = ProgressRecorder()
 
     _ = try await installer.installIfNeeded { value in
-        Task { await recorder.append(value) }
+        recorder.append(value)
     }
-    try await Task.sleep(for: .milliseconds(20))
 
-    let values = await recorder.snapshot()
+    let values = recorder.snapshot()
     #expect(values.first == 0.75)
     #expect(values.last == 1.0)
 }
