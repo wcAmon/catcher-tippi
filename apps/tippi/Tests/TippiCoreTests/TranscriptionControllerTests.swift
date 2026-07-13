@@ -171,3 +171,46 @@ func microphoneFailureLeavesRecordingOffAndCanBeRetried() async {
     }
     #expect(!controller.isRecording)
 }
+
+@MainActor
+@Test
+func clearTranscriptClearsOnlyWhenReady() async throws {
+    let catcher = FakeCatcher()
+    await catcher.script(
+        pushes: [TranscriptUpdate(
+            segments: [segment(0, 400, "今天先討論這個。", final: false)],
+            warning: "diarization disabled after a runtime error: injected"
+        )],
+        finish: TranscriptUpdate(
+            segments: [segment(0, 400, "今天先討論這個。", final: true)],
+            warning: "diarization disabled after a runtime error: injected"
+        )
+    )
+    let audio = FakeAudio()
+    let controller = TranscriptionController(
+        modelInstaller: FakeInstaller(bundle: testBundle),
+        audio: audio,
+        catcherFactory: { _ in catcher }
+    )
+    await controller.prepare()
+
+    await controller.toggleRecording()
+    await audio.emit([0.1])
+    try await Task.sleep(for: .milliseconds(20))
+    controller.speakerNames[0] = "小明"
+
+    // 錄音中呼叫是 no-op。
+    controller.clearTranscript()
+    #expect(!controller.messages.isEmpty)
+    #expect(controller.speakerNames == [0: "小明"])
+
+    await controller.toggleRecording()
+    #expect(controller.state == .ready)
+    #expect(controller.warningMessage != nil)
+
+    controller.clearTranscript()
+    #expect(controller.messages.isEmpty)
+    #expect(controller.speakerNames.isEmpty)
+    #expect(controller.warningMessage == nil)
+    #expect(controller.state == .ready)
+}

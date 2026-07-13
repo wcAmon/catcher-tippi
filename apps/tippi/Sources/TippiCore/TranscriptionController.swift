@@ -56,6 +56,15 @@ public final class TranscriptionController {
         }
     }
 
+    /// Wipes the finished transcript so the user can start over without
+    /// recording. No-op unless idle: recording keeps its live transcript.
+    public func clearTranscript() {
+        guard state == .ready else { return }
+        messages = []
+        speakerNames = [:]
+        warningMessage = nil
+    }
+
     private func startRecording() async {
         guard let catcher else { return }
         do {
