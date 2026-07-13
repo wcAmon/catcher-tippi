@@ -84,6 +84,16 @@ catcher_status_t catcher_finish_before(catcher_handle_t *handle, uint64_t cutoff
 const char *catcher_text(const catcher_handle_t *handle);
 
 /*
+ * Returns a non-destructive UTF-8 transcript snapshot containing timed
+ * tokens whose frame start is strictly earlier than cutoff_ms. This call
+ * does not flush, discard tokens, change session state, or replace the full
+ * catcher_text transcript. The borrowed pointer is valid until the next
+ * mutating call, catcher_text_before call, or catcher_destroy.
+ * Returns NULL and records catcher_last_error on failure.
+ */
+const char *catcher_text_before(catcher_handle_t *handle, uint64_t cutoff_ms);
+
+/*
  * Returns the current speaker segments as a UTF-8 JSON array, e.g.
  * `[{"speaker":0,"start_ms":0,"end_ms":800,"text":"...","final":true}]`.
  * `"final":false` marks at most one trailing tentative segment whose

@@ -5,7 +5,7 @@ use std::sync::{Mutex, MutexGuard};
 use catcher_ffi::{
     CATCHER_INVALID_ARGUMENT, CATCHER_INVALID_STATE, CATCHER_NO_UPDATE, CATCHER_OK, catcher_create,
     catcher_destroy, catcher_finish, catcher_finish_before, catcher_last_error, catcher_push_audio,
-    catcher_segments, catcher_start, catcher_text, catcher_warning,
+    catcher_segments, catcher_start, catcher_text, catcher_text_before, catcher_warning,
 };
 
 /// MLX evaluates onto a process-global Metal command buffer that is not safe
@@ -47,6 +47,7 @@ fn null_arguments_report_errors_without_unwinding() {
             CATCHER_INVALID_ARGUMENT
         );
         assert!(catcher_text(ptr::null()).is_null());
+        assert!(catcher_text_before(ptr::null_mut(), 1_500).is_null());
         assert!(!catcher_last_error(ptr::null()).is_null());
         catcher_destroy(ptr::null_mut());
     }
@@ -129,6 +130,22 @@ fn c_abi_transcribes_reference_wav_exactly() {
             CStr::from_ptr(catcher_text(handle)).to_str().unwrap(),
             "Hello, this is a streaming speech recognition test"
         );
+        let full = CStr::from_ptr(catcher_text(handle))
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            CStr::from_ptr(catcher_text_before(handle, 0)).to_bytes(),
+            b""
+        );
+        assert_eq!(CStr::from_ptr(catcher_text(handle)).to_str().unwrap(), full);
+        assert_eq!(
+            CStr::from_ptr(catcher_text_before(handle, u64::MAX))
+                .to_str()
+                .unwrap(),
+            full
+        );
+        assert_eq!(CStr::from_ptr(catcher_text(handle)).to_str().unwrap(), full);
         catcher_destroy(handle);
     }
 }

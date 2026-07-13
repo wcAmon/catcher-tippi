@@ -54,6 +54,7 @@ pub struct CatcherHandle {
     fusion: Fusion,
     timed_tokens: Vec<TimedToken>,
     text: CString,
+    text_before_cutoff: CString,
     segments_json: CString,
     warning: Option<CString>,
     last_error: CString,
@@ -279,6 +280,7 @@ pub unsafe extern "C" fn catcher_create(
             fusion: Fusion::new(FusionConfig::default()),
             timed_tokens: Vec::new(),
             text: empty_c_string(),
+            text_before_cutoff: empty_c_string(),
             segments_json: safe_c_string("[]"),
             warning: None,
             last_error: empty_c_string(),
@@ -329,6 +331,7 @@ pub unsafe extern "C" fn catcher_start(handle: *mut CatcherHandle) -> i32 {
             handle.fusion.reset();
             handle.timed_tokens.clear();
             handle.text = empty_c_string();
+            handle.text_before_cutoff = empty_c_string();
             handle.segments_json = safe_c_string("[]");
             handle.state = SessionState::Started;
             Ok(CATCHER_OK)
@@ -436,6 +439,46 @@ pub unsafe extern "C" fn catcher_text(handle: *const CatcherHandle) -> *const c_
         Ok(pointer) => pointer,
         Err(payload) => {
             set_global_error(&panic_message(payload));
+            ptr::null()
+        }
+    }
+}
+
+/// Returns a non-destructive UTF-8 transcript snapshot containing tokens
+/// whose frame starts strictly before `cutoff_ms`.
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by `catcher_create`. The
+/// returned pointer is invalidated by the next mutating call,
+/// `catcher_text_before` call, or destroy.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn catcher_text_before(
+    handle: *mut CatcherHandle,
+    cutoff_ms: u64,
+) -> *const c_char {
+    if handle.is_null() {
+        set_global_error("catcher handle is null");
+        return ptr::null();
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let handle = unsafe { &mut *handle };
+        let ids = token_ids_before_ms(&handle.timed_tokens, cutoff_ms);
+        let decoded = handle
+            .tokenizer
+            .decode(&ids, true)
+            .map_err(|error| error.to_string())?;
+        handle.text_before_cutoff = safe_c_string(&opencc::to_traditional(&decoded));
+        Ok::<*const c_char, String>(handle.text_before_cutoff.as_ptr())
+    }));
+    match result {
+        Ok(Ok(pointer)) => pointer,
+        Ok(Err(error)) => {
+            unsafe { &mut *handle }.last_error = safe_c_string(&error);
+            ptr::null()
+        }
+        Err(payload) => {
+            unsafe { &mut *handle }.last_error = safe_c_string(&panic_message(payload));
             ptr::null()
         }
     }
@@ -571,6 +614,14 @@ fn finish_session(
     } else {
         CATCHER_NO_UPDATE
     })
+}
+
+fn token_ids_before_ms(tokens: &[TimedToken], cutoff_ms: u64) -> Vec<u32> {
+    tokens
+        .iter()
+        .filter(|token| token.frame.saturating_mul(ASR_FRAME_MS) < cutoff_ms)
+        .map(|token| token.id)
+        .collect()
 }
 
 /// Pushes `samples` into the diarizer, if one is still attached. A runtime
@@ -763,5 +814,23 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
         message.clone()
     } else {
         "unknown Rust panic in Catcher".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_ids_before_ms_use_a_strict_eighty_ms_boundary() {
+        let tokens = vec![
+            TimedToken { id: 10, frame: 0 },
+            TimedToken { id: 11, frame: 1 },
+            TimedToken { id: 12, frame: 2 },
+        ];
+
+        assert_eq!(token_ids_before_ms(&tokens, 0), Vec::<u32>::new());
+        assert_eq!(token_ids_before_ms(&tokens, 80), vec![10]);
+        assert_eq!(token_ids_before_ms(&tokens, 160), vec![10, 11]);
     }
 }

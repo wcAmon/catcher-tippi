@@ -133,3 +133,31 @@ fn unrelated_audio_does_not_trigger_tippi_go() {
         catcher_kws_destroy(handle);
     }
 }
+
+#[test]
+#[ignore = "requires SHERPA_KWS_MODEL"]
+fn reported_timestamp_is_not_an_absolute_long_stream_offset() {
+    let model = CString::new(std::env::var("SHERPA_KWS_MODEL").unwrap()).unwrap();
+    let handle = unsafe { catcher_kws_create(model.as_ptr()) };
+    assert!(!handle.is_null());
+    let spoken = read_wav(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/tippi-go.wav"
+    ));
+
+    unsafe {
+        for prefix_seconds in [1_usize, 5, 10, 20] {
+            assert_eq!(catcher_kws_start(handle), CATCHER_OK);
+            let mut samples = vec![0.0; prefix_seconds * 16_000];
+            samples.extend_from_slice(&spoken);
+            samples.extend(vec![0.0; 16_000]);
+            assert!(feed_until_detected(handle, &samples));
+            let reported = catcher_kws_start_ms(handle);
+            assert!(
+                reported < prefix_seconds as u64 * 1_000,
+                "{prefix_seconds}s prefix unexpectedly produced absolute {reported}ms"
+            );
+        }
+        catcher_kws_destroy(handle);
+    }
+}

@@ -36,6 +36,8 @@ catcher_status_t catcher_push_audio(catcher_handle_t *, const float *, size_t);
 catcher_status_t catcher_finish(catcher_handle_t *);
 catcher_status_t catcher_finish_before(catcher_handle_t *, uint64_t);
 const char *catcher_text(const catcher_handle_t *);
+/* Non-destructive stable-prefix snapshot; see the canonical header. */
+const char *catcher_text_before(catcher_handle_t *, uint64_t);
 const char *catcher_segments(const catcher_handle_t *);
 const char *catcher_warning(const catcher_handle_t *);
 const char *catcher_last_error(const catcher_handle_t *);
