@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import TippiCore
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var controller: TranscriptionController
@@ -72,6 +73,7 @@ struct ContentView: View {
                                         names: controller.speakerNames
                                     ),
                                     accent: Self.accents[message.speaker % Self.accents.count],
+                                    lineText: TranscriptFormatter.line(for: message, names: controller.speakerNames),
                                     onRename: { newName in
                                         rename(speaker: message.speaker, to: newName)
                                     }
@@ -122,6 +124,10 @@ struct ContentView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button("複製全部") { copyAll() }
+                    .disabled(controller.messages.isEmpty)
+                Button("匯出…") { exportTranscript() }
+                    .disabled(controller.messages.isEmpty)
                 Button {
                     Task { await controller.toggleRecording() }
                 } label: {
@@ -191,5 +197,29 @@ struct ContentView: View {
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
         ) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    private var fullTranscript: String {
+        TranscriptFormatter.transcript(
+            messages: controller.messages,
+            names: controller.speakerNames
+        )
+    }
+
+    private func copyAll() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fullTranscript, forType: .string)
+    }
+
+    private func exportTranscript() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "Tippi 逐字稿.txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Data(fullTranscript.utf8).write(to: url)
+        } catch {
+            NSSound.beep()
+        }
     }
 }

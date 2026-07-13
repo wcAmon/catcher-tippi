@@ -5,6 +5,7 @@ struct MessageRow: View {
     let message: Message
     let name: String
     let accent: Color
+    let lineText: String
     let onRename: (String) -> Void
 
     @State private var isRenaming = false
@@ -42,5 +43,11 @@ struct MessageRow: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            Button("複製此則") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(lineText, forType: .string)
+            }
+        }
     }
 }
