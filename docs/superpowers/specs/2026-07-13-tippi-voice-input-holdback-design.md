@@ -1,6 +1,6 @@
 # Tippi 語音輸入 1.5 秒安全緩衝修正設計
 
-> **狀態：待書面審閱。** 2026-07-13 已確認採用方案 A：保留即時注入，但加入約
+> **狀態：已核准。** 2026-07-13 已確認採用方案 A：保留即時注入，但加入約
 > 1.5 秒安全緩衝。本文件是
 > `2026-07-13-tippi-voice-input-injection-design.md` 的錯誤修正補充；未被本文件修改的
 > 原設計仍然有效。
@@ -102,7 +102,8 @@ func text(before cutoffMs: UInt64) async throws -> String
 1. 增加 `receivedSampleCount`。
 2. 將同一批 PCM 依序送入主 ASR 與 KWS。
 3. 計算 `stableCutoffMs`。
-4. 主 ASR 有更新時，讀取 `catcher.text(before: stableCutoffMs)`。
+4. 每個 audio chunk 都讀取 `catcher.text(before: stableCutoffMs)`；不能只在主 ASR 回報新
+   token 時查詢，因為後續靜音仍會讓既有 token 跨過 1.5 秒穩定界線。
 5. 將穩定快照交給 `TextInjectionCoordinator.consume`；Coordinator 仍只注入相對於前次穩定
    快照的新 suffix。
 
