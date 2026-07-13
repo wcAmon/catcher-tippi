@@ -158,6 +158,8 @@ impl Fusion {
             result.push(tail);
         }
 
+        shift_boundary_punctuation(&mut result);
+
         result
     }
 }
@@ -333,4 +335,32 @@ fn build_tail(
         false,
         detokenize,
     ))
+}
+
+/// Boundary punctuation that reads as "closing" the previous utterance.
+/// A segment beginning with these characters looks wrong attributed to the
+/// *next* speaker, so the leading run migrates to the previous segment's
+/// tail (cosmetic only: timestamps are untouched).
+const BOUNDARY_PUNCTUATION: [char; 8] = [',', '。', '?', '!', '、', ':', ';', '…'];
+
+fn shift_boundary_punctuation(segments: &mut Vec<SpeakerSegment>) {
+    let mut index = 1;
+    while index < segments.len() {
+        let text = &segments[index].text;
+        let prefix_end = text
+            .char_indices()
+            .find(|&(_, c)| !BOUNDARY_PUNCTUATION.contains(&c))
+            .map(|(byte, _)| byte)
+            .unwrap_or(text.len());
+        if prefix_end > 0 {
+            let prefix = segments[index].text[..prefix_end].to_string();
+            segments[index].text.replace_range(..prefix_end, "");
+            segments[index - 1].text.push_str(&prefix);
+        }
+        if segments[index].text.is_empty() {
+            segments.remove(index);
+        } else {
+            index += 1;
+        }
+    }
 }

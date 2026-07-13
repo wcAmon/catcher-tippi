@@ -231,3 +231,82 @@ fn pushes_after_flush_remain_decidable() {
     assert!(segments.iter().all(|s| s.is_final));
     assert!(!segments.iter().any(|s| !s.is_final));
 }
+
+/// 45 diar frames:0..=17 為 speaker0 高機率,18..=44 為 speaker1。
+fn two_speaker_diar_frames() -> Vec<[f32; 4]> {
+    (0..45)
+        .map(|frame| {
+            if frame <= 17 {
+                [0.9, 0.05, 0.0, 0.0]
+            } else {
+                [0.05, 0.9, 0.0, 0.0]
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn leading_punctuation_moves_to_previous_segment() {
+    let mut fusion = Fusion::new(FusionConfig::default());
+    fusion.push_tokens(&[
+        TimedToken { id: 1, frame: 2 },
+        TimedToken { id: 2, frame: 10 },
+        TimedToken { id: 3, frame: 25 },
+        TimedToken { id: 4, frame: 35 },
+    ]);
+    fusion.push_diar_frames(&two_speaker_diar_frames());
+    fusion.flush();
+
+    let segments = fusion.segments(|ids| {
+        if ids.contains(&3) {
+            ",第二段".to_string()
+        } else {
+            "第一段".to_string()
+        }
+    });
+
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0].text, "第一段,");
+    assert_eq!(segments[1].text, "第二段");
+    assert_eq!(segments[1].speaker, 1);
+}
+
+#[test]
+fn all_punctuation_segment_is_absorbed_and_dropped() {
+    let mut fusion = Fusion::new(FusionConfig::default());
+    fusion.push_tokens(&[
+        TimedToken { id: 1, frame: 2 },
+        TimedToken { id: 2, frame: 10 },
+        TimedToken { id: 3, frame: 25 },
+        TimedToken { id: 4, frame: 35 },
+    ]);
+    fusion.push_diar_frames(&two_speaker_diar_frames());
+    fusion.flush();
+
+    let segments = fusion.segments(|ids| {
+        if ids.contains(&3) {
+            "?!".to_string()
+        } else {
+            "第一段".to_string()
+        }
+    });
+
+    assert_eq!(segments.len(), 1);
+    assert_eq!(segments[0].text, "第一段?!");
+}
+
+#[test]
+fn first_segment_leading_punctuation_is_untouched() {
+    let mut fusion = Fusion::new(FusionConfig::default());
+    fusion.push_tokens(&[
+        TimedToken { id: 1, frame: 2 },
+        TimedToken { id: 2, frame: 10 },
+    ]);
+    fusion.push_diar_frames(&two_speaker_diar_frames());
+    fusion.flush();
+
+    let segments = fusion.segments(|_| ",開頭".to_string());
+
+    assert_eq!(segments.len(), 1);
+    assert_eq!(segments[0].text, ",開頭");
+}
