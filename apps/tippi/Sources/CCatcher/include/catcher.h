@@ -27,6 +27,8 @@ enum {
  * for the documented contract. `catcher_create`'s second argument is the
  * optional diarization model path (NULL = ASR only). */
 catcher_handle_t *catcher_create(const char *, const char *, const char *, uint32_t);
+/* catcher_start also retries rebuilding a previously degraded diarizer;
+ * a failed rebuild is non-fatal (still returns CATCHER_OK, sets a warning). */
 catcher_status_t catcher_start(catcher_handle_t *);
 catcher_status_t catcher_push_audio(catcher_handle_t *, const float *, size_t);
 catcher_status_t catcher_finish(catcher_handle_t *);

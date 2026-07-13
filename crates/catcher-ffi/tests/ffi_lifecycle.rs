@@ -20,6 +20,19 @@ fn serialize_mlx() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Loads the shared dual-model test fixture as mono Float32 16 kHz samples.
+fn conversation_samples() -> Vec<f32> {
+    let mut reader = hound::WavReader::open(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/conversation.wav"
+    ))
+    .unwrap();
+    reader
+        .samples::<i16>()
+        .map(|sample| sample.unwrap() as f32 / 32768.0)
+        .collect::<Vec<_>>()
+}
+
 #[test]
 fn null_arguments_report_errors_without_unwinding() {
     unsafe {
@@ -185,15 +198,7 @@ fn dual_model_create_produces_decodable_segments_json() {
     };
     assert!(!handle.is_null());
 
-    let mut reader = hound::WavReader::open(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/conversation.wav"
-    ))
-    .unwrap();
-    let samples = reader
-        .samples::<i16>()
-        .map(|sample| sample.unwrap() as f32 / 32768.0)
-        .collect::<Vec<_>>();
+    let samples = conversation_samples();
 
     unsafe {
         assert_eq!(catcher_start(handle), CATCHER_OK);
@@ -275,6 +280,86 @@ fn dual_model_create_produces_decodable_segments_json() {
             prev_start_ms = Some(start_ms);
         }
 
+        catcher_destroy(handle);
+    }
+}
+
+#[test]
+#[ignore = "requires NEMOTRON_MLX_ARTIFACT and SORTFORMER_MLX_ARTIFACT"]
+fn degraded_diarizer_is_rebuilt_on_next_start() {
+    let _guard = serialize_mlx();
+    let model = CString::new(std::env::var("NEMOTRON_MLX_ARTIFACT").unwrap()).unwrap();
+    let diar_model = CString::new(std::env::var("SORTFORMER_MLX_ARTIFACT").unwrap()).unwrap();
+    let language = CString::new("auto").unwrap();
+    let handle =
+        unsafe { catcher_create(model.as_ptr(), diar_model.as_ptr(), language.as_ptr(), 3) };
+    assert!(!handle.is_null());
+    let samples = conversation_samples();
+
+    unsafe {
+        assert_eq!(catcher_start(handle), CATCHER_OK);
+        catcher_push_audio(handle, samples.as_ptr(), 16_000);
+        assert!(catcher_warning(handle).is_null());
+
+        // 注入執行期降級:warning 出現、後續 push 仍可運作(純 ASR)。
+        catcher_ffi::test_degrade_diarizer(handle);
+        assert!(!catcher_warning(handle).is_null());
+        let status = catcher_push_audio(handle, samples[16_000..].as_ptr(), 16_000);
+        assert!(status == CATCHER_OK || status == CATCHER_NO_UPDATE);
+        assert!(!catcher_warning(handle).is_null());
+        catcher_finish(handle);
+
+        // 下一次 start 就地重建:warning 清空、diarization 恢復產出 segments。
+        assert_eq!(catcher_start(handle), CATCHER_OK);
+        assert!(catcher_warning(handle).is_null());
+        let mut offset = 0usize;
+        let chunk = 16_000;
+        let mut recovered = false;
+        while offset + chunk <= samples.len() {
+            catcher_push_audio(handle, samples[offset..].as_ptr(), chunk);
+            offset += chunk;
+            let segments = CStr::from_ptr(catcher_segments(handle));
+            if segments.to_bytes() != b"[]" {
+                recovered = true;
+                break;
+            }
+        }
+        assert!(recovered, "diarization produced no segments after rebuild");
+        catcher_destroy(handle);
+    }
+}
+
+#[test]
+#[ignore = "requires NEMOTRON_MLX_ARTIFACT and SORTFORMER_MLX_ARTIFACT"]
+fn failed_rebuild_keeps_warning_and_start_succeeds() {
+    let _guard = serialize_mlx();
+    // 把 diar artifact 複製到暫存目錄,degrade 後刪除,迫使重建失敗。
+    let source = std::path::PathBuf::from(std::env::var("SORTFORMER_MLX_ARTIFACT").unwrap());
+    let staging = std::env::temp_dir().join(format!("catcher-ffi-rebuild-{}", std::process::id()));
+    std::fs::create_dir_all(&staging).unwrap();
+    for entry in std::fs::read_dir(&source).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), staging.join(entry.file_name())).unwrap();
+    }
+
+    let model = CString::new(std::env::var("NEMOTRON_MLX_ARTIFACT").unwrap()).unwrap();
+    let diar_model = CString::new(staging.to_str().unwrap()).unwrap();
+    let language = CString::new("auto").unwrap();
+    let handle =
+        unsafe { catcher_create(model.as_ptr(), diar_model.as_ptr(), language.as_ptr(), 3) };
+    assert!(!handle.is_null());
+
+    unsafe {
+        assert_eq!(catcher_start(handle), CATCHER_OK);
+        catcher_ffi::test_degrade_diarizer(handle);
+        std::fs::remove_dir_all(&staging).unwrap();
+
+        // 重建失敗必須非致命:start 回 OK、warning 保留、純 ASR 繼續可用。
+        assert_eq!(catcher_start(handle), CATCHER_OK);
+        assert!(!catcher_warning(handle).is_null());
+        let samples = conversation_samples();
+        let status = catcher_push_audio(handle, samples.as_ptr(), 16_000);
+        assert!(status == CATCHER_OK || status == CATCHER_NO_UPDATE);
         catcher_destroy(handle);
     }
 }

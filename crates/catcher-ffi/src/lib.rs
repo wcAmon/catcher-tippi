@@ -39,11 +39,11 @@ pub struct CatcherHandle {
     /// has not yet hit a runtime error. Degrades to `None` on a diarization
     /// runtime failure without affecting transcription.
     diarizer: Option<StreamingDiarizer>,
-    /// Whether `catcher_create` was given a non-null `diar_model_path`. Kept
-    /// separately from `diarizer` because `diarizer` can degrade to `None`
-    /// mid-session while `catcher_segments` must keep reporting real (if
-    /// stale) segments rather than snapping back to the never-diarized `[]`.
-    diarization_requested: bool,
+    /// The `diar_model_path` given to `catcher_create`, kept so
+    /// `catcher_start` can rebuild a diarizer that degraded to `None` after
+    /// a runtime error. `None` means diarization was never requested, in
+    /// which case `catcher_segments` stays `[]` forever.
+    diar_model_path: Option<String>,
     fusion: Fusion,
     timed_tokens: Vec<TimedToken>,
     text: CString,
@@ -78,8 +78,7 @@ pub unsafe extern "C" fn catcher_create(
         let tokenizer =
             Tokenizer::from_json(Path::new(&model_path).join("tokenizer.json"), 0, 13_087)
                 .map_err(|error| error.to_string())?;
-        let diarization_requested = diar_model_path.is_some();
-        let diarizer = match diar_model_path {
+        let diarizer = match diar_model_path.clone() {
             Some(diar_model_path) => Some(
                 StreamingDiarizer::from_artifact_dir(&diar_model_path)
                     .map_err(|error| error.to_string())?,
@@ -90,7 +89,7 @@ pub unsafe extern "C" fn catcher_create(
             transcriber,
             tokenizer,
             diarizer,
-            diarization_requested,
+            diar_model_path,
             fusion: Fusion::new(FusionConfig::default()),
             timed_tokens: Vec::new(),
             text: empty_c_string(),
@@ -127,13 +126,23 @@ pub unsafe extern "C" fn catcher_start(handle: *mut CatcherHandle) -> i32 {
                 .transcriber
                 .reset()
                 .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
-            if let Some(diarizer) = handle.diarizer.as_mut() {
-                diarizer.reset();
+            handle.warning = None;
+            match handle.diarizer.as_mut() {
+                Some(diarizer) => diarizer.reset(),
+                None => {
+                    if let Some(path) = handle.diar_model_path.clone() {
+                        match StreamingDiarizer::from_artifact_dir(&path) {
+                            Ok(diarizer) => handle.diarizer = Some(diarizer),
+                            Err(error) => {
+                                handle.warning = Some(diarizer_rebuild_warning(&error));
+                            }
+                        }
+                    }
+                }
             }
             handle.fusion.reset();
             handle.timed_tokens.clear();
             handle.text = empty_c_string();
-            handle.warning = None;
             handle.segments_json = safe_c_string("[]");
             handle.state = SessionState::Started;
             Ok(CATCHER_OK)
@@ -418,7 +427,7 @@ fn rebuild_strings_and_report_segment_change(
         .map_err(|error| (CATCHER_RUNTIME_ERROR, error.to_string()))?;
     handle.text = safe_c_string(&opencc::to_traditional(&decoded));
 
-    let segments_json = if handle.diarization_requested {
+    let segments_json = if handle.diar_model_path.is_some() {
         let tokenizer = &handle.tokenizer;
         let segments = handle.fusion.segments(|ids| {
             tokenizer
@@ -492,6 +501,33 @@ fn diarizer_disabled_warning(error: &sortformer_mlx::model::ModelError) -> CStri
 
 fn set_global_error(message: &str) {
     LAST_ERROR.with(|error| *error.borrow_mut() = safe_c_string(message));
+}
+
+/// Formats the warning stored when `catcher_start` fails to rebuild a
+/// previously degraded diarizer. Distinct wording from
+/// [`diarizer_disabled_warning`] so logs distinguish "died mid-session"
+/// from "could not come back".
+fn diarizer_rebuild_warning(error: &sortformer_mlx::model::ModelError) -> CString {
+    safe_c_string(&format!(
+        "diarization unavailable: failed to reload the model: {error}"
+    ))
+}
+
+/// Test-only hook: simulates the runtime degradation path (diarizer dropped,
+/// warning set) without needing a real mid-session model failure. Not part
+/// of the C ABI (no `#[unsafe(no_mangle)]`), only reachable from Rust
+/// integration tests.
+///
+/// # Safety
+///
+/// `handle` must be a live pointer returned by `catcher_create`.
+#[doc(hidden)]
+pub unsafe fn test_degrade_diarizer(handle: *mut CatcherHandle) {
+    let handle = unsafe { &mut *handle };
+    handle.warning = Some(safe_c_string(
+        "diarization disabled after a runtime error: injected by test",
+    ));
+    handle.diarizer = None;
 }
 
 fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {

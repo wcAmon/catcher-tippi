@@ -54,6 +54,16 @@ catcher_handle_t *catcher_create(
     uint32_t lookahead
 );
 
+/*
+ * Clears caches and text for a new utterance. If the diarizer previously
+ * degraded to disabled after a runtime error (see catcher_warning),
+ * catcher_start attempts to rebuild it in place from the same
+ * `diar_model_path` given to catcher_create. A successful rebuild clears the
+ * warning and resumes diarization; a failed rebuild is non-fatal: it still
+ * returns CATCHER_OK, leaves a warning describing the reload failure (see
+ * catcher_warning), and the handle continues in ASR-only mode for the new
+ * utterance. Never fails outright for this reason alone.
+ */
 catcher_status_t catcher_start(catcher_handle_t *handle);
 catcher_status_t catcher_push_audio(
     catcher_handle_t *handle,
@@ -92,10 +102,12 @@ const char *catcher_segments(const catcher_handle_t *handle);
  * catcher_push_audio/catcher_finish; reads "diarization disabled after a
  * runtime error: <details>". The diarizer stays disabled for the rest of
  * the utterance (segments then keep flowing from whatever diarization
- * frames had already arrived, without new ones); catcher_start clears the
- * warning along with the rest of the per-utterance state, but does not
- * reload or otherwise restore the diarizer. Transcription itself is
- * unaffected by any condition reported here.
+ * frames had already arrived, without new ones). catcher_start clears the
+ * warning and attempts to rebuild the diarizer in place; if that rebuild
+ * fails, a new warning is set instead, reading "diarization unavailable:
+ * failed to reload the model: <details>", and the handle stays in ASR-only
+ * mode for the new utterance. Transcription itself is unaffected by any
+ * condition reported here.
  *
  * Same borrowed-pointer lifetime rules as catcher_text: valid until the next
  * mutating call on this handle or catcher_destroy. Returns NULL if `handle`
