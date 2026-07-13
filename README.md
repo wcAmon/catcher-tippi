@@ -65,7 +65,11 @@ bar, verifies pinned SHA-256 hashes, and installs them atomically under its
 sandboxed Application Support directory. The app contains no Hugging Face
 token.
 
-Inside Tippi:
+The window has two tabs: **轉錄** (Transcription), described below, and
+**語音輸入** (Voice Input), a placeholder screen reserved for a later
+sub-project.
+
+Inside the **轉錄** tab:
 
 1. Wait for the first-run model download and model-load status to reach Ready.
 2. Select **Start Recording** and grant microphone permission when macOS asks.
@@ -73,15 +77,26 @@ Inside Tippi:
    each message is tagged with its speaker (unnamed speakers show as
    說話者 N), the most recent message grows in place as partial text arrives,
    and a new message starts whenever the speaker changes. Click a speaker's
-   name to rename them; the rename applies retroactively across the whole
-   list.
+   name (hover shows an underline and a tooltip) to rename them; the rename
+   applies retroactively across the whole list.
 4. Select **Stop Recording** to flush and retain the final text. Starting a
    new recording resets speaker names and messages.
 
-Use **複製全部** to copy the whole transcript, or **匯出…** to save it as a
-UTF-8 `.txt` file; either produces the same line-per-message format, e.g.
-`[03:24] 小明：今天先討論這個。`. Each message also offers **複製此則** to
-copy just that line.
+Use **複製全部** to copy the whole transcript, or **匯出…** to save it as
+either a UTF-8 `.txt` file or a `.json` file, picked by the extension chosen
+in the save panel. The `.txt` format is the same line-per-message text, e.g.
+`[03:24] 小明：今天先討論這個。`. The `.json` format is a
+`{"messages": [...] }` document with snake_case keys — `speaker`, `name`,
+`start_ms`, `end_ms`, `text`, `final` — where `name` is each message's
+display name (renamed or the default 說話者 N). If the export write fails
+(e.g. a read-only destination), Tippi shows a "匯出失敗" alert with the
+underlying error instead of failing silently. Each message also offers
+**複製此則** to copy just that line.
+
+Once recording is stopped and there is at least one message, **清除** clears
+all messages, speaker renames, and the diarizer warning banner after a
+confirmation dialog ("清除全部訊息?"); it stays disabled while downloading,
+loading, or recording, and while the transcript is empty.
 
 If diarization hits a runtime error, Tippi shows a non-blocking banner
 ("說話者分離已暫停,文字繼續轉寫") and keeps transcribing; the next recording
