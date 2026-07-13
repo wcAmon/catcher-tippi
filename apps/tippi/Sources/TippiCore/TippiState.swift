@@ -8,6 +8,19 @@ public enum TippiState: Equatable, Sendable {
     case failed(String)
 }
 
+public enum RecordingMode: Equatable, Sendable {
+    case transcription
+    case voiceInput
+}
+
+public enum VoiceInputPreparationState: Equatable, Sendable {
+    case notPrepared
+    case downloading(Double)
+    case loading
+    case ready
+    case failed(String)
+}
+
 public enum TippiStateError: Error, Equatable {
     case invalidTransition(from: TippiState, to: TippiState)
 }
