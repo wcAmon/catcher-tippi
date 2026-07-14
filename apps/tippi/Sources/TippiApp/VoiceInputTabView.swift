@@ -43,12 +43,12 @@ struct VoiceInputTabView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("語音輸入")
                     .font(.system(size: 32, weight: .semibold, design: .rounded))
-                Text("內容說完後短暫停頓，再說 Tippi Go 送出。")
+                Text("內容說完後短暫停頓，再說「\(VoiceSubmitCommand.displayPhrase)」。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("口令：Tippi Go")
+            Text("口令：\(VoiceSubmitCommand.displayPhrase)")
                 .font(.callout.weight(.semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
@@ -127,7 +127,7 @@ struct VoiceInputTabView: View {
     private var keywordModelStatus: some View {
         switch controller.voiceInputPreparation {
         case .notPrepared:
-            Label("正在準備 Tippi Go 口令模型", systemImage: "clock")
+            Label("正在準備口令模型", systemImage: "clock")
                 .foregroundStyle(.secondary)
         case let .downloading(progress):
             VStack(alignment: .leading, spacing: 8) {
@@ -140,7 +140,7 @@ struct VoiceInputTabView: View {
             Label("正在載入口令模型", systemImage: "gearshape.2")
                 .foregroundStyle(.secondary)
         case .ready:
-            Label("Tippi Go 口令模型已就緒", systemImage: "checkmark.circle.fill")
+            Label("「\(VoiceSubmitCommand.displayPhrase)」口令模型已就緒", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
         case let .failed(message):
             VStack(alignment: .leading, spacing: 10) {
@@ -164,7 +164,7 @@ struct VoiceInputTabView: View {
                 Label(targetText, systemImage: "macwindow.on.rectangle")
                     .foregroundStyle(targetNeedsAttention ? .orange : .primary)
                 if controller.isRecording(.voiceInput) && targetNeedsAttention {
-                    Text("請切到目標輸入框；Tippi 不會把文字輸入到自己。")
+                    Text("請切到目標輸入框；Tippi 不會把文字輸入到自己。切換後請重說「\(VoiceSubmitCommand.displayPhrase)」。")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 } else {
@@ -262,7 +262,7 @@ struct VoiceInputTabView: View {
 
     private var recordingHint: String {
         if controller.isRecording(.voiceInput) {
-            return "文字約延遲 1.5 秒；短暫停頓後說 Tippi Go。"
+            return "文字約延遲 2 秒；短暫停頓後說「\(VoiceSubmitCommand.displayPhrase)」。"
         }
         if controller.activeMode == .transcription { return "轉錄分頁正在使用麥克風。" }
         if !controller.accessibilityTrusted { return "授權後才能開始。" }

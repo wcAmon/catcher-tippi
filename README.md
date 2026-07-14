@@ -4,7 +4,7 @@
 [`nvidia/nemotron-3.5-asr-streaming-0.6b`](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b),
 using MLX-C/Metal on Apple Silicon. **Tippi** is its native macOS SwiftUI app:
 record speaker-attributed transcripts, or stream recognized text into the
-frontmost app and say `Tippi Go` to press Return.
+frontmost app and say `幫我送出` to press Return.
 
 Catcher performs log-mel extraction, cache-aware 24-layer FastConformer
 inference, language prompting, greedy RNNT decoding, and tokenizer decoding
@@ -111,20 +111,21 @@ open System Settings → Privacy & Security → Microphone.
 Voice Input sends the same 16 kHz microphone stream to two local models. The
 main Catcher ASR model produces the text to inject. A second, smaller offline
 [`sherpa-onnx`](https://github.com/k2-fsa/sherpa-onnx) keyword-spotting model
-detects the fixed `Tippi Go` command without sending audio to a cloud service.
+detects the fixed `幫我送出` command without sending audio to a cloud service.
 Tippi downloads and verifies the pinned keyword model when this tab is first
-prepared.
+prepared. Existing valid installations update the generated command files in
+place without downloading the model archive again.
 
 To use it:
 
-1. 打開「語音輸入」分頁，等待 Catcher 與 Tippi Go 模型就緒。
+1. 打開「語音輸入」分頁，等待語音辨識與「幫我送出」口令模型就緒。
 2. 授予 Tippi「系統設定 → 隱私權與安全性 → 輔助使用」權限。
 3. 按「開始語音輸入」，切到目標 App 並點進輸入框。
-4. 說完內容後短暫停頓（約 0.5 秒），再說「Tippi Go」送出。
-5. Tippi Go 不會進入輸入框。停止按鈕不會自動送出未完成內容。
+4. 說完內容後短暫停頓（約 0.5 秒），再說「幫我送出」。
+5. 口令不會進入輸入框；停止按鈕不會自動送出未完成內容。
 
-- Live text is intentionally held for about 1.5 seconds before injection.
-- After finishing the content, pause briefly (about 0.5 seconds), then say Tippi Go.
+- Live text is intentionally held for about 2 seconds before injection.
+- After finishing the content, pause briefly (about 0.5 seconds), then say `幫我送出`.
 - The pause keeps the final content outside the command safety window.
 - If content runs directly into the command, Tippi prefers dropping a very short tail over leaking command words.
 - sherpa-onnx timestamps are diagnostic-only; cutoff follows the shared 16 kHz sample clock.
@@ -134,7 +135,7 @@ when the command is accepted; it does not use or replace the clipboard. Keep
 the intended target app and input field focused while speaking. Version 1 does
 not find or focus a text field automatically, and a command spoken while Tippi
 itself is frontmost is discarded rather than deferred. Switch back to the
-target input field and say `Tippi Go` again.
+target input field and say 「幫我送出」 again.
 
 Downloaded models live at:
 
@@ -278,7 +279,7 @@ Measurements are hardware- and workload-specific.
   sensitivity UI, App Store signing, or notarization in the first Tippi
   release;
 - Voice Input requires Accessibility permission, a compatible focused text
-  control, and the fixed `Tippi Go` command; it does not automatically focus or
+  control, and the fixed `幫我送出` command; it does not automatically focus or
   inspect the destination field;
 - the INT8 artifact has exact-token reference coverage but not yet a complete
   multilingual WER evaluation.
