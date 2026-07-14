@@ -237,7 +237,7 @@ public final class TranscriptionController {
             receivedSampleCount: receivedSampleCount
         )
 
-        if let detection, detection.keyword == "TIPPI_GO" {
+        if let detection, detection.keyword == VoiceSubmitCommand.eventIdentifier {
             if suppressImmediateDuplicateCommand {
                 // A detector can surface the same buffered command immediately after
                 // reset. Discard that audio from both engines without another Return.
@@ -251,7 +251,7 @@ public final class TranscriptionController {
             let event = try injectionCoordinator.submit(final.text)
             applyInjectionEvent(event)
             if event == .waitingForTarget {
-                voiceInputMessage = "請切到目標輸入框後重說 Tippi Go"
+                voiceInputMessage = "請切到目標輸入框後重說「\(VoiceSubmitCommand.displayPhrase)」"
             }
             try await catcher.start()
             try await keywordSpotter.reset()
