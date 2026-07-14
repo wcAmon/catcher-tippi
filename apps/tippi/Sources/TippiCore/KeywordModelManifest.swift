@@ -23,8 +23,7 @@ public struct KeywordModelArchive: Sendable {
 }
 
 public enum KeywordModelManifest {
-    public static let keywords =
-        "T IH1 P IY0 G OW1 :1.5 #0.25 @TIPPI_GO\n"
+    public static let keywords = VoiceSubmitCommand.keywordDefinition
 
     public static let release = KeywordModelArchive(
         url: URL(

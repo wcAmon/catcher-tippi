@@ -111,7 +111,7 @@ func installsOnlyVerifiedRuntimeFilesAndGeneratedMetadata() async throws {
     let installedFiles = try FileManager.default.contentsOfDirectory(atPath: installed.path).sorted()
     #expect(installedFiles == expectedInstalledKeywordFiles)
     #expect(try Data(contentsOf: installed.appending(path: "keywords.txt"))
-        == Data("T IH1 P IY0 G OW1 :1.5 #0.25 @TIPPI_GO\n".utf8))
+        == Data(VoiceSubmitCommand.keywordDefinition.utf8))
     #expect(try String(contentsOf: installed.appending(path: "THIRD_PARTY_NOTICES.md"), encoding: .utf8)
         == expectedThirdPartyNotice)
     #expect(await downloader.callCount() == 1)
@@ -290,8 +290,9 @@ func keywordReleaseManifestPinsOfficialChunk16Artifacts() {
     #expect(release.byteCount == 32_885_699)
     #expect(release.files.map(\.name) == keywordRuntimeNames)
     #expect(release.files.map(\.byteCount) == [4_599_656, 759_829, 86_629, 1_928])
+    #expect(KeywordModelManifest.keywords == VoiceSubmitCommand.keywordDefinition)
     #expect(KeywordModelManifest.keywords
-        == "T IH1 P IY0 G OW1 :1.5 #0.25 @TIPPI_GO\n")
+        == "b āng w ǒ s òng ch ū :1.5 #0.25 @SUBMIT_ZH\n")
 }
 
 private struct KeywordInstallerFixture {

@@ -27,9 +27,9 @@ public enum KeywordSpotterClientError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .creationFailed(message):
-            "Could not load Tippi Go detector: \(message)"
+            "無法載入「\(VoiceSubmitCommand.displayPhrase)」口令模型：\(message)"
         case let .operationFailed(message):
-            "Tippi Go detector failed: \(message)"
+            "「\(VoiceSubmitCommand.displayPhrase)」口令偵測失敗：\(message)"
         }
     }
 }

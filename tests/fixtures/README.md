@@ -1,14 +1,29 @@
 # Audio fixtures
 
-## tippi-go.wav
+## Mandarin submit-command fixtures
 
-Deterministic positive fixture for the offline `Tippi Go` keyword detector.
-It is Samantha's macOS system voice saying "Tippy go" at 170 words per
-minute, converted to 16 kHz mono PCM16. KWS tests add one second of digital
-silence before and after this clip so the streaming model receives enough
-left context.
+`bang-wo-song-chu-zh-cn.wav` and `bang-wo-song-chu-zh-tw.wav` are deterministic
+positive fixtures for 「幫我送出」, spoken by the macOS Tingting (`zh_CN`) and
+Meijia (`zh_TW`) voices. `bang-wo-zh-tw.wav` and `song-chu-zh-tw.wav` are
+partial-command negatives. All four files are 16 kHz mono PCM16.
 
 Reconstruction commands:
+
+```sh
+/usr/bin/say -v Tingting -r 170 -o /tmp/bang-wo-song-chu-zh-cn.aiff "幫我送出"
+/usr/bin/say -v Meijia -r 170 -o /tmp/bang-wo-song-chu-zh-tw.aiff "幫我送出"
+/usr/bin/say -v Meijia -r 170 -o /tmp/bang-wo-zh-tw.aiff "幫我"
+/usr/bin/say -v Meijia -r 170 -o /tmp/song-chu-zh-tw.aiff "送出"
+/usr/bin/afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/bang-wo-song-chu-zh-cn.aiff tests/fixtures/bang-wo-song-chu-zh-cn.wav
+/usr/bin/afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/bang-wo-song-chu-zh-tw.aiff tests/fixtures/bang-wo-song-chu-zh-tw.wav
+/usr/bin/afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/bang-wo-zh-tw.aiff tests/fixtures/bang-wo-zh-tw.wav
+/usr/bin/afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/song-chu-zh-tw.aiff tests/fixtures/song-chu-zh-tw.wav
+```
+
+## tippi-go.wav
+
+Deterministic negative regression for the removed English command. It remains
+checked in to prove that `Tippi Go` no longer submits.
 
 ```sh
 /usr/bin/say -v Samantha -r 170 -o /tmp/tippi-go.aiff "Tippy go"

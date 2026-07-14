@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use sherpa_onnx::{KeywordSpotter, KeywordSpotterConfig, OnlineStream};
 
-pub const EXPECTED_KEYWORD: &str = "TIPPI_GO";
+pub const EXPECTED_KEYWORD: &str = "SUBMIT_ZH";
 
 pub struct KeywordDetection {
     pub keyword: String,

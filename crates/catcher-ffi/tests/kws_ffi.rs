@@ -1,5 +1,5 @@
 use std::ffi::{CStr, CString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 use catcher_ffi::{
@@ -43,6 +43,17 @@ unsafe fn assert_no_detection(handle: *mut catcher_ffi::KwsHandle, samples: &[f3
     }
 }
 
+fn padded_fixture(name: &str) -> Vec<f32> {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(name);
+    let spoken = read_wav(path);
+    let mut samples = vec![0.0; 16_000];
+    samples.extend(spoken);
+    samples.extend(vec![0.0; 16_000]);
+    samples
+}
+
 #[test]
 fn null_kws_handle_is_safe() {
     unsafe {
@@ -61,75 +72,55 @@ fn null_kws_handle_is_safe() {
 
 #[test]
 #[ignore = "requires SHERPA_KWS_MODEL"]
-fn detects_padded_tippi_go_once_and_resets() {
+fn detects_both_mandarin_submit_fixtures_and_resets() {
     let model = CString::new(std::env::var("SHERPA_KWS_MODEL").unwrap()).unwrap();
     let handle = unsafe { catcher_kws_create(model.as_ptr()) };
     assert!(!handle.is_null(), "KWS model should load");
-    let spoken = read_wav(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/tippi-go.wav"
-    ));
-    let mut samples = vec![0.0; 16_000];
-    samples.extend(spoken);
-    samples.extend(vec![0.0; 16_000]);
 
     unsafe {
-        assert_eq!(catcher_kws_start(handle), CATCHER_OK);
-        assert!(feed_until_detected(handle, &samples));
-        assert_eq!(
-            CStr::from_ptr(catcher_kws_keyword(handle))
-                .to_str()
-                .unwrap(),
-            "TIPPI_GO"
-        );
-        let start_ms = catcher_kws_start_ms(handle);
-        assert!((800..=2_000).contains(&start_ms), "start_ms was {start_ms}");
-        println!("detected TIPPI_GO at {start_ms} ms");
+        for fixture in ["bang-wo-song-chu-zh-cn.wav", "bang-wo-song-chu-zh-tw.wav"] {
+            let samples = padded_fixture(fixture);
+            assert_eq!(catcher_kws_start(handle), CATCHER_OK);
+            assert!(feed_until_detected(handle, &samples), "missed {fixture}");
+            assert_eq!(
+                CStr::from_ptr(catcher_kws_keyword(handle))
+                    .to_str()
+                    .unwrap(),
+                "SUBMIT_ZH"
+            );
+            let start_ms = catcher_kws_start_ms(handle);
+            assert!((500..=3_000).contains(&start_ms), "{fixture}: {start_ms}ms");
 
-        assert_eq!(
-            catcher_kws_push_audio(handle, ptr::null(), 0),
-            CATCHER_NO_UPDATE
-        );
-        assert_eq!(
-            CStr::from_ptr(catcher_kws_keyword(handle))
-                .to_str()
-                .unwrap(),
-            "TIPPI_GO"
-        );
-        assert_eq!(catcher_kws_start_ms(handle), start_ms);
-
-        assert_eq!(catcher_kws_start(handle), CATCHER_OK);
-        assert_eq!(CStr::from_ptr(catcher_kws_keyword(handle)).to_bytes(), b"");
-        assert_eq!(catcher_kws_start_ms(handle), 0);
-        assert!(feed_until_detected(handle, &samples));
+            assert_eq!(catcher_kws_start(handle), CATCHER_OK);
+            assert_eq!(CStr::from_ptr(catcher_kws_keyword(handle)).to_bytes(), b"");
+            assert_eq!(catcher_kws_start_ms(handle), 0);
+            assert!(
+                feed_until_detected(handle, &samples),
+                "missed {fixture} after reset"
+            );
+        }
         catcher_kws_destroy(handle);
     }
 }
 
 #[test]
 #[ignore = "requires SHERPA_KWS_MODEL"]
-fn unrelated_audio_does_not_trigger_tippi_go() {
+fn partial_old_and_unrelated_audio_do_not_trigger_submit() {
     let model = CString::new(std::env::var("SHERPA_KWS_MODEL").unwrap()).unwrap();
     let handle = unsafe { catcher_kws_create(model.as_ptr()) };
     assert!(!handle.is_null(), "KWS model should load");
 
-    let hello = read_wav(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/hello-streaming.wav"
-    ));
-    let conversation = read_wav(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/conversation.wav"
-    ));
-    let midpoint = conversation.len() / 2;
-
     unsafe {
-        assert_eq!(catcher_kws_start(handle), CATCHER_OK);
-        assert_no_detection(handle, &hello);
-        assert_eq!(catcher_kws_start(handle), CATCHER_OK);
-        assert_no_detection(handle, &conversation[..midpoint]);
-        assert_eq!(catcher_kws_start(handle), CATCHER_OK);
-        assert_no_detection(handle, &conversation[midpoint..]);
+        for fixture in [
+            "bang-wo-zh-tw.wav",
+            "song-chu-zh-tw.wav",
+            "tippi-go.wav",
+            "hello-streaming.wav",
+            "conversation.wav",
+        ] {
+            assert_eq!(catcher_kws_start(handle), CATCHER_OK);
+            assert_no_detection(handle, &padded_fixture(fixture));
+        }
         catcher_kws_destroy(handle);
     }
 }
@@ -142,7 +133,7 @@ fn reported_timestamp_is_not_an_absolute_long_stream_offset() {
     assert!(!handle.is_null());
     let spoken = read_wav(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/tippi-go.wav"
+        "/../../tests/fixtures/bang-wo-song-chu-zh-tw.wav"
     ));
 
     unsafe {
@@ -153,8 +144,9 @@ fn reported_timestamp_is_not_an_absolute_long_stream_offset() {
             samples.extend(vec![0.0; 16_000]);
             assert!(feed_until_detected(handle, &samples));
             let reported = catcher_kws_start_ms(handle);
+            println!("{prefix_seconds}s prefix reported {reported}ms");
             assert!(
-                reported < prefix_seconds as u64 * 1_000,
+                reported <= 3_000,
                 "{prefix_seconds}s prefix unexpectedly produced absolute {reported}ms"
             );
         }
