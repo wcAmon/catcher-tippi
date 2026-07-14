@@ -66,6 +66,36 @@ private struct FailingKeywordModelPromoter: KeywordModelPromoting {
     }
 }
 
+private final class TrackingKeywordModelPromoter: KeywordModelPromoting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    private let shouldFail: Bool
+
+    init(shouldFail: Bool = false) {
+        self.shouldFail = shouldFail
+    }
+
+    func promote(staging: URL, to destination: URL, fileManager: FileManager) throws {
+        lock.lock()
+        callCount += 1
+        lock.unlock()
+        if shouldFail {
+            throw KeywordPromotionFailure.forced
+        }
+        try AtomicKeywordModelPromoter().promote(
+            staging: staging,
+            to: destination,
+            fileManager: fileManager
+        )
+    }
+
+    func calls() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return callCount
+    }
+}
+
 private let keywordRuntimeNames = [
     "encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx",
     "decoder-epoch-13-avg-2-chunk-16-left-64.onnx",
@@ -93,6 +123,11 @@ private let expectedThirdPartyNotice = """
 private enum InstalledRuntimeDamage {
     case missing
     case corrupt
+}
+
+private enum InstalledInventoryDamage {
+    case missingGeneratedFile
+    case extraFile
 }
 
 private func assertInvalidRuntimeForcesFullInstall(
@@ -131,6 +166,54 @@ private func assertInvalidRuntimeForcesFullInstall(
     #expect(await extractor.calls() == 1)
     #expect(try Data(contentsOf: installed.appending(path: keywordRuntimeNames[0]))
         == fixture.payloads[keywordRuntimeNames[0]]!)
+}
+
+private func assertUnsafeInventoryForcesFullInstall(
+    _ damage: InstalledInventoryDamage
+) async throws {
+    let fixture = keywordInstallerFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let destination = fixture.root.appending(
+        path: fixture.manifest.directoryName,
+        directoryHint: .isDirectory
+    )
+    try writeVerifiedInstall(at: destination, payloads: fixture.payloads)
+    switch damage {
+    case .missingGeneratedFile:
+        try FileManager.default.removeItem(
+            at: destination.appending(path: "keywords.txt")
+        )
+    case .extraFile:
+        try Data("unexpected".utf8).write(
+            to: destination.appending(path: "unexpected.bin")
+        )
+    }
+    let downloader = KeywordArchiveDownloader(payload: fixture.archive)
+    let extractor = KeywordArchiveExtractor(
+        modelDirectoryName: fixture.manifest.directoryName,
+        payloads: fixture.payloads
+    )
+    let promoter = TrackingKeywordModelPromoter()
+    let installer = KeywordModelInstaller(
+        rootDirectory: fixture.root,
+        manifest: fixture.manifest,
+        downloader: downloader,
+        extractor: extractor,
+        promoter: promoter
+    )
+
+    let installed = try await installer.installIfNeeded { _ in }
+
+    #expect(installed == destination)
+    #expect(await downloader.callCount() == 1)
+    #expect(await extractor.calls() == 1)
+    #expect(promoter.calls() == 1)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: installed.path).sorted()
+        == expectedInstalledKeywordFiles)
+    #expect(try Data(contentsOf: installed.appending(path: "keywords.txt"))
+        == Data(VoiceSubmitCommand.keywordDefinition.utf8))
+    #expect(try Data(contentsOf: installed.appending(path: "THIRD_PARTY_NOTICES.md"))
+        == Data(expectedThirdPartyNotice.utf8))
 }
 
 @Test
@@ -301,6 +384,79 @@ func staleGeneratedFilesAreRepairedWithoutDownloadExtractionOrPromotion() async 
         == Data(VoiceSubmitCommand.keywordDefinition.utf8))
     #expect(try Data(contentsOf: installed.appending(path: "THIRD_PARTY_NOTICES.md"))
         == Data(expectedThirdPartyNotice.utf8))
+}
+
+@Test
+func interruptedGeneratedRepairCanRetryWithoutFullInstall() async throws {
+    let fixture = keywordInstallerFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let destination = fixture.root.appending(
+        path: fixture.manifest.directoryName,
+        directoryHint: .isDirectory
+    )
+    try writeVerifiedInstall(at: destination, payloads: fixture.payloads)
+    let keywords = destination.appending(path: "keywords.txt")
+    let notice = destination.appending(path: "THIRD_PARTY_NOTICES.md")
+    try Data("stale keywords".utf8).write(to: keywords)
+    try FileManager.default.removeItem(at: notice)
+    try FileManager.default.createDirectory(at: notice, withIntermediateDirectories: false)
+    let downloader = KeywordArchiveDownloader(payload: fixture.archive)
+    let extractor = KeywordArchiveExtractor(
+        modelDirectoryName: fixture.manifest.directoryName,
+        payloads: fixture.payloads
+    )
+    let promoter = TrackingKeywordModelPromoter(shouldFail: true)
+    let installer = KeywordModelInstaller(
+        rootDirectory: fixture.root,
+        manifest: fixture.manifest,
+        downloader: downloader,
+        extractor: extractor,
+        promoter: promoter
+    )
+
+    do {
+        _ = try await installer.installIfNeeded { _ in }
+        Issue.record("Expected generated-file repair to fail")
+    } catch KeywordModelInstallerError.generatedFileRepairFailed {
+        // The generic repair error must hide the underlying filesystem failure.
+    } catch {
+        Issue.record("Unexpected generated-file repair error: \(error)")
+    }
+
+    #expect(await downloader.callCount() == 0)
+    #expect(await extractor.calls() == 0)
+    #expect(promoter.calls() == 0)
+    for (name, payload) in fixture.payloads {
+        #expect(try Data(contentsOf: destination.appending(path: name)) == payload)
+    }
+    #expect(try Data(contentsOf: keywords)
+        == Data(VoiceSubmitCommand.keywordDefinition.utf8))
+
+    try FileManager.default.removeItem(at: notice)
+    try Data("stale notice".utf8).write(to: notice)
+    let installed = try await installer.installIfNeeded { _ in }
+
+    #expect(installed == destination)
+    #expect(await downloader.callCount() == 0)
+    #expect(await extractor.calls() == 0)
+    #expect(promoter.calls() == 0)
+    for (name, payload) in fixture.payloads {
+        #expect(try Data(contentsOf: installed.appending(path: name)) == payload)
+    }
+    #expect(try Data(contentsOf: installed.appending(path: "keywords.txt"))
+        == Data(VoiceSubmitCommand.keywordDefinition.utf8))
+    #expect(try Data(contentsOf: installed.appending(path: "THIRD_PARTY_NOTICES.md"))
+        == Data(expectedThirdPartyNotice.utf8))
+}
+
+@Test
+func missingGeneratedFileForcesFullInstall() async throws {
+    try await assertUnsafeInventoryForcesFullInstall(.missingGeneratedFile)
+}
+
+@Test
+func extraInstalledFileForcesFullInstall() async throws {
+    try await assertUnsafeInventoryForcesFullInstall(.extraFile)
 }
 
 @Test
