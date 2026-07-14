@@ -90,6 +90,17 @@ fn detects_both_mandarin_submit_fixtures_and_resets() {
             );
             let start_ms = catcher_kws_start_ms(handle);
             assert!((500..=3_000).contains(&start_ms), "{fixture}: {start_ms}ms");
+            assert_eq!(
+                catcher_kws_push_audio(handle, ptr::null(), 0),
+                CATCHER_NO_UPDATE
+            );
+            assert_eq!(
+                CStr::from_ptr(catcher_kws_keyword(handle))
+                    .to_str()
+                    .unwrap(),
+                "SUBMIT_ZH"
+            );
+            assert_eq!(catcher_kws_start_ms(handle), start_ms);
 
             assert_eq!(catcher_kws_start(handle), CATCHER_OK);
             assert_eq!(CStr::from_ptr(catcher_kws_keyword(handle)).to_bytes(), b"");
