@@ -1,7 +1,7 @@
 # Tippi Chinese Submit Command Design
 
 **Date:** 2026-07-14  
-**Status:** Approved in conversation; pending written-spec review
+**Status:** Approved 2026-07-14
 
 ## 1. Context
 
@@ -110,8 +110,11 @@ pause briefly, and then say 「幫我送出」.
 The pinned ONNX files and `tokens.txt` do not change. The installer separates
 verification into two layers:
 
-1. **Runtime files:** the four pinned files (`encoder.onnx`, `decoder.onnx`,
-   `joiner.onnx`, and `tokens.txt`) with their existing SHA-256 hashes.
+1. **Runtime files:** the four pinned files
+   (`encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx`,
+   `decoder-epoch-13-avg-2-chunk-16-left-64.onnx`,
+   `joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx`, and `tokens.txt`) with
+   their existing SHA-256 hashes.
 2. **Generated files:** the current `keywords.txt` and
    `THIRD_PARTY_NOTICES.md` contents.
 
