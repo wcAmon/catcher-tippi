@@ -90,6 +90,49 @@ private let expectedThirdPartyNotice = """
 
     """
 
+private enum InstalledRuntimeDamage {
+    case missing
+    case corrupt
+}
+
+private func assertInvalidRuntimeForcesFullInstall(
+    _ damage: InstalledRuntimeDamage
+) async throws {
+    let fixture = keywordInstallerFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let destination = fixture.root.appending(
+        path: fixture.manifest.directoryName,
+        directoryHint: .isDirectory
+    )
+    try writeVerifiedInstall(at: destination, payloads: fixture.payloads)
+    let damaged = destination.appending(path: keywordRuntimeNames[0])
+    switch damage {
+    case .missing:
+        try FileManager.default.removeItem(at: damaged)
+    case .corrupt:
+        try Data("corrupt installed runtime".utf8).write(to: damaged)
+    }
+    let downloader = KeywordArchiveDownloader(payload: fixture.archive)
+    let extractor = KeywordArchiveExtractor(
+        modelDirectoryName: fixture.manifest.directoryName,
+        payloads: fixture.payloads
+    )
+    let installer = KeywordModelInstaller(
+        rootDirectory: fixture.root,
+        manifest: fixture.manifest,
+        downloader: downloader,
+        extractor: extractor
+    )
+
+    let installed = try await installer.installIfNeeded { _ in }
+
+    #expect(installed == destination)
+    #expect(await downloader.callCount() == 1)
+    #expect(await extractor.calls() == 1)
+    #expect(try Data(contentsOf: installed.appending(path: keywordRuntimeNames[0]))
+        == fixture.payloads[keywordRuntimeNames[0]]!)
+}
+
 @Test
 func installsOnlyVerifiedRuntimeFilesAndGeneratedMetadata() async throws {
     let fixture = keywordInstallerFixture()
@@ -216,6 +259,78 @@ func verifiedExistingInstallSkipsDownloadAndExtraction() async throws {
     #expect(await downloader.callCount() == 0)
     #expect(await extractor.calls() == 0)
     assertNoKeywordPartials(root: fixture.root, directoryName: fixture.manifest.directoryName)
+}
+
+@Test
+func staleGeneratedFilesAreRepairedWithoutDownloadExtractionOrPromotion() async throws {
+    let fixture = keywordInstallerFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let destination = fixture.root.appending(
+        path: fixture.manifest.directoryName,
+        directoryHint: .isDirectory
+    )
+    try writeVerifiedInstall(at: destination, payloads: fixture.payloads)
+    try Data("T IH1 P IY0 G OW1 :1.5 #0.25 @TIPPI_GO\n".utf8).write(
+        to: destination.appending(path: "keywords.txt")
+    )
+    try Data("stale notice".utf8).write(
+        to: destination.appending(path: "THIRD_PARTY_NOTICES.md")
+    )
+    let downloader = KeywordArchiveDownloader(payload: fixture.archive)
+    let extractor = KeywordArchiveExtractor(
+        modelDirectoryName: fixture.manifest.directoryName,
+        payloads: fixture.payloads
+    )
+    let installer = KeywordModelInstaller(
+        rootDirectory: fixture.root,
+        manifest: fixture.manifest,
+        downloader: downloader,
+        extractor: extractor,
+        promoter: FailingKeywordModelPromoter()
+    )
+
+    let installed = try await installer.installIfNeeded { _ in }
+
+    #expect(installed == destination)
+    #expect(await downloader.callCount() == 0)
+    #expect(await extractor.calls() == 0)
+    for (name, payload) in fixture.payloads {
+        #expect(try Data(contentsOf: installed.appending(path: name)) == payload)
+    }
+    #expect(try Data(contentsOf: installed.appending(path: "keywords.txt"))
+        == Data(VoiceSubmitCommand.keywordDefinition.utf8))
+    #expect(try Data(contentsOf: installed.appending(path: "THIRD_PARTY_NOTICES.md"))
+        == Data(expectedThirdPartyNotice.utf8))
+}
+
+@Test
+func missingInstalledRuntimeForcesFullInstall() async throws {
+    try await assertInvalidRuntimeForcesFullInstall(.missing)
+}
+
+@Test
+func corruptInstalledRuntimeForcesFullInstall() async throws {
+    try await assertInvalidRuntimeForcesFullInstall(.corrupt)
+}
+
+@Test
+func generatedRepairFailureHasGenericChineseError() {
+    #expect(KeywordModelInstallerError.generatedFileRepairFailed.errorDescription
+        == "無法更新口令模型設定")
+}
+
+@Test
+func keywordModelInstallerErrorsAreChinese() {
+    #expect(KeywordModelInstallerError.invalidArchiveChecksum.errorDescription
+        == "口令模型封存檔未通過 SHA-256 驗證")
+    #expect(KeywordModelInstallerError.missingRuntimeFile("encoder.onnx").errorDescription
+        == "口令模型封存檔缺少 encoder.onnx")
+    #expect(KeywordModelInstallerError.invalidRuntimeFileChecksum("encoder.onnx").errorDescription
+        == "口令模型檔案未通過 SHA-256 驗證：encoder.onnx")
+    #expect(KeywordModelInstallerError.incompleteInstallation.errorDescription
+        == "已安裝的口令模型不完整")
+    #expect(KeywordModelInstallerError.extractionFailed("tar failed").errorDescription
+        == "無法解壓縮口令模型：tar failed")
 }
 
 @Test

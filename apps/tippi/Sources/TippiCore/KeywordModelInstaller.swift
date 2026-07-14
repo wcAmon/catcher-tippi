@@ -20,19 +20,22 @@ public enum KeywordModelInstallerError: Error, LocalizedError {
     case invalidRuntimeFileChecksum(String)
     case incompleteInstallation
     case extractionFailed(String)
+    case generatedFileRepairFailed
 
     public var errorDescription: String? {
         switch self {
         case .invalidArchiveChecksum:
-            "The Tippi Go model archive failed SHA-256 verification"
+            "口令模型封存檔未通過 SHA-256 驗證"
         case let .missingRuntimeFile(file):
-            "The Tippi Go model archive is missing \(file)"
+            "口令模型封存檔缺少 \(file)"
         case let .invalidRuntimeFileChecksum(file):
-            "The Tippi Go model file failed SHA-256 verification: \(file)"
+            "口令模型檔案未通過 SHA-256 驗證：\(file)"
         case .incompleteInstallation:
-            "The installed Tippi Go model is incomplete"
+            "已安裝的口令模型不完整"
         case let .extractionFailed(message):
-            "Could not extract the Tippi Go model: \(message)"
+            "無法解壓縮口令模型：\(message)"
+        case .generatedFileRepairFailed:
+            "無法更新口令模型設定"
         }
     }
 }
@@ -136,6 +139,18 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
             progress(1.0)
             return destination
         }
+        if try hasExpectedInventory(at: destination), try verifyRuntimeFiles(at: destination) {
+            do {
+                try writeGeneratedFiles(to: destination)
+                guard try verifyInstallation(at: destination) else {
+                    throw KeywordModelInstallerError.incompleteInstallation
+                }
+            } catch {
+                throw KeywordModelInstallerError.generatedFileRepairFailed
+            }
+            progress(1.0)
+            return destination
+        }
 
         do {
             try await downloader.download(from: manifest.url, to: partials.archive) { value in
@@ -176,14 +191,7 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
                 let verifiedShare = Double(index + 1) / Double(manifest.files.count)
                 progress(0.86 + verifiedShare * 0.12)
             }
-            try Data(KeywordModelManifest.keywords.utf8).write(
-                to: partials.install.appending(path: "keywords.txt"),
-                options: .atomic
-            )
-            try Data(Self.thirdPartyNotice.utf8).write(
-                to: partials.install.appending(path: "THIRD_PARTY_NOTICES.md"),
-                options: .atomic
-            )
+            try writeGeneratedFiles(to: partials.install)
             guard try verifyInstallation(at: partials.install) else {
                 throw KeywordModelInstallerError.incompleteInstallation
             }
@@ -203,7 +211,11 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
         }
     }
 
-    private func verifyInstallation(at directory: URL) throws -> Bool {
+    private var expectedInstalledNames: Set<String> {
+        Set(manifest.files.map(\.name) + ["keywords.txt", "THIRD_PARTY_NOTICES.md"])
+    }
+
+    private func hasExpectedInventory(at directory: URL) throws -> Bool {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
               isDirectory.boolValue
@@ -211,12 +223,11 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
             return false
         }
 
-        let expectedNames = Set(
-            manifest.files.map(\.name) + ["keywords.txt", "THIRD_PARTY_NOTICES.md"]
-        )
-        guard Set(try fileManager.contentsOfDirectory(atPath: directory.path)) == expectedNames else {
-            return false
-        }
+        return Set(try fileManager.contentsOfDirectory(atPath: directory.path))
+            == expectedInstalledNames
+    }
+
+    private func verifyRuntimeFiles(at directory: URL) throws -> Bool {
         for file in manifest.files {
             let url = directory.appending(path: file.name)
             guard fileManager.fileExists(atPath: url.path),
@@ -225,13 +236,39 @@ public actor KeywordModelInstaller: KeywordModelInstalling {
                 return false
             }
         }
-        guard try Data(contentsOf: directory.appending(path: "keywords.txt"))
-            == Data(KeywordModelManifest.keywords.utf8)
+        return true
+    }
+
+    private func verifyGeneratedFiles(at directory: URL) -> Bool {
+        guard let keywords = try? Data(contentsOf: directory.appending(path: "keywords.txt")),
+              let notice = try? Data(
+                  contentsOf: directory.appending(path: "THIRD_PARTY_NOTICES.md")
+              )
         else {
             return false
         }
-        return try Data(contentsOf: directory.appending(path: "THIRD_PARTY_NOTICES.md"))
-            == Data(Self.thirdPartyNotice.utf8)
+        return keywords == Data(VoiceSubmitCommand.keywordDefinition.utf8)
+            && notice == Data(Self.thirdPartyNotice.utf8)
+    }
+
+    private func verifyInstallation(at directory: URL) throws -> Bool {
+        guard try hasExpectedInventory(at: directory),
+              try verifyRuntimeFiles(at: directory)
+        else {
+            return false
+        }
+        return verifyGeneratedFiles(at: directory)
+    }
+
+    private func writeGeneratedFiles(to directory: URL) throws {
+        try Data(VoiceSubmitCommand.keywordDefinition.utf8).write(
+            to: directory.appending(path: "keywords.txt"),
+            options: .atomic
+        )
+        try Data(Self.thirdPartyNotice.utf8).write(
+            to: directory.appending(path: "THIRD_PARTY_NOTICES.md"),
+            options: .atomic
+        )
     }
 
     private func partialURLs() -> (archive: URL, unpack: URL, install: URL) {
