@@ -42,11 +42,24 @@ public sealed class NemotronEngine : IDisposable
     private bool _traditionalChinese;
 
     public NemotronEngine(string modelDirectory)
+        : this(modelDirectory, InferenceBackend.Cpu)
     {
-        // The CPU NuGet package contains only the CPU execution provider. No CUDA or
-        // discrete GPU probe occurs, so the same build works on integrated-graphics PCs.
-        _model = new Model(modelDirectory);
     }
+
+    public NemotronEngine(string modelDirectory, InferenceBackend backend)
+    {
+        using var config = new Config(modelDirectory);
+        config.ClearProviders();
+        if (backend == InferenceBackend.DirectML)
+        {
+            config.AppendProvider("DML");
+        }
+
+        _model = new Model(config);
+        Backend = backend;
+    }
+
+    public InferenceBackend Backend { get; }
 
     public void BeginSession(string language, bool useVad, bool traditionalChinese)
     {

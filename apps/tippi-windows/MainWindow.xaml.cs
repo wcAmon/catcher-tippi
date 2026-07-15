@@ -14,6 +14,8 @@ public partial class MainWindow : Window
 {
     private readonly ModelInstaller _installer = new();
     private readonly DiarizationModelInstaller _diarizationInstaller = new();
+    private readonly InferenceBackendLoader _backendLoader = new();
+    private readonly InferencePreferenceStore _preferenceStore = new();
     private readonly CancellationTokenSource _lifetime = new();
     private NemotronEngine? _engine;
     private SpeakerDiarizer? _diarizer;
@@ -25,14 +27,17 @@ public partial class MainWindow : Window
     private bool _recordingTraditional;
     private bool _busy;
     private bool _shutdownComplete;
+    private bool _windowLoaded;
 
     public MainWindow()
     {
         InitializeComponent();
+        SetBackendBox(_preferenceStore.Load());
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        _windowLoaded = true;
         nint handle = new WindowInteropHelper(this).Handle;
         _injectionCoordinator = new TextInjectionCoordinator(new WindowsTextInjector(handle));
         await PrepareModelAsync(repair: false);
@@ -66,7 +71,7 @@ public partial class MainWindow : Window
             {
                 if (!_installer.IsInstalled())
                 {
-                    StatusText.Text = $"首次使用：正在下載 CPU 模型（合計約 {FormatBytes(allModelBytes)}）…";
+                    StatusText.Text = $"首次使用：正在下載本機模型（合計約 {FormatBytes(allModelBytes)}）…";
                     await _installer.InstallAsync(asrProgress, _lifetime.Token);
                 }
                 if (!_diarizationInstaller.IsInstalled())
@@ -78,14 +83,20 @@ public partial class MainWindow : Window
 
             if (_engine is null)
             {
-                StatusText.Text = "正在載入語音模型（CPU）…";
                 ProgressText.Text = "第一次載入需要一些時間；建議至少 8 GB RAM，並保留約 4 GB 可用記憶體。";
-                _engine = await Task.Run(() => new NemotronEngine(_installer.ModelDirectory), _lifetime.Token);
+                InferenceLoadResult loaded = await _backendLoader.LoadAsync(
+                    _installer.ModelDirectory,
+                    SelectedBackendPreference(),
+                    forceProbe: repair,
+                    new Progress<string>(message => StatusText.Text = message),
+                    _lifetime.Token);
+                _engine = loaded.Engine;
+                UpdateRuntimePresentation(loaded);
             }
 
             ModelProgress.Value = 1;
-            StatusText.Text = "準備完成：純 CPU，可開始錄音或選擇音訊檔。";
-            ProgressText.Text = $"模型位於：{ModelsRootDirectory()}";
+            StatusText.Text = $"準備完成：{CurrentBackendName()}，可開始錄音或選擇音訊檔。";
+            ProgressText.Text += $"  模型位於：{ModelsRootDirectory()}";
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -125,7 +136,55 @@ public partial class MainWindow : Window
         _diarizer = null;
         _engine?.Dispose();
         _engine = null;
+        _backendLoader.InvalidateProfile();
         await PrepareModelAsync(repair: true);
+    }
+
+    private async void BackendBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_windowLoaded)
+        {
+            return;
+        }
+
+        InferenceBackendPreference preference = SelectedBackendPreference();
+        _preferenceStore.Save(preference);
+        if (_busy || !_installer.IsInstalled())
+        {
+            return;
+        }
+
+        SetBusy(true);
+        try
+        {
+            _engine?.Dispose();
+            _engine = null;
+            if (preference == InferenceBackendPreference.Auto)
+            {
+                _backendLoader.InvalidateProfile();
+            }
+
+            InferenceLoadResult loaded = await _backendLoader.LoadAsync(
+                _installer.ModelDirectory,
+                preference,
+                forceProbe: true,
+                new Progress<string>(message => StatusText.Text = message),
+                _lifetime.Token);
+            _engine = loaded.Engine;
+            UpdateRuntimePresentation(loaded);
+            StatusText.Text = $"已切換至 {CurrentBackendName()}。";
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            ShowError("無法切換運算後端", ex);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
     private async void StartButton_Click(object sender, RoutedEventArgs e)
@@ -155,9 +214,15 @@ public partial class MainWindow : Window
         try
         {
             await Task.Run(
-                () => _engine.BeginSession(language, useVad, _recordingTraditional),
+                () => BeginSessionWithFallback(language, useVad, _recordingTraditional),
                 _lifetime.Token);
-            _recognitionWorker = RunRecognitionWorkerAsync(_audioChannel.Reader, inject, _lifetime.Token);
+            _recognitionWorker = RunRecognitionWorkerAsync(
+                _audioChannel.Reader,
+                language,
+                useVad,
+                _recordingTraditional,
+                inject,
+                _lifetime.Token);
             _microphone = new MicrophoneCapture();
             _microphone.SamplesAvailable += samples => _audioChannel.Writer.TryWrite(samples);
             _microphone.Stopped += error => _audioChannel.Writer.TryComplete(error);
@@ -197,6 +262,9 @@ public partial class MainWindow : Window
 
     private Task<RecognitionSessionResult> RunRecognitionWorkerAsync(
         ChannelReader<float[]> reader,
+        string language,
+        bool useVad,
+        bool traditional,
         bool inject,
         CancellationToken cancellationToken)
     {
@@ -209,7 +277,30 @@ public partial class MainWindow : Window
             await foreach (float[] samples in reader.ReadAllAsync(cancellationToken))
             {
                 audio.AddRange(samples);
-                TranscriptionUpdate? update = _engine!.Process(samples);
+                TranscriptionUpdate? update;
+                try
+                {
+                    update = _engine!.Process(samples);
+                }
+                catch (Exception ex) when (_engine?.Backend == InferenceBackend.DirectML)
+                {
+                    SwitchToCpu(language, useVad, traditional, ex);
+                    collector = new TimedTranscriptCollector();
+                    latest = new(string.Empty, string.Empty);
+                    int replayedSamples = 0;
+                    foreach (float[] replayChunk in audio.ToArray().Chunk(8_960))
+                    {
+                        update = _engine.Process(replayChunk);
+                        replayedSamples += replayChunk.Length;
+                        if (update is not null)
+                        {
+                            latest = update;
+                            collector.Update(update.RawText, replayedSamples / 16_000d);
+                            PublishUpdate(update, inject);
+                        }
+                    }
+                    continue;
+                }
                 if (update is not null)
                 {
                     latest = update;
@@ -218,7 +309,30 @@ public partial class MainWindow : Window
                 }
             }
 
-            TranscriptionUpdate? final = _engine!.Flush();
+            TranscriptionUpdate? final;
+            try
+            {
+                final = _engine!.Flush();
+            }
+            catch (Exception ex) when (_engine?.Backend == InferenceBackend.DirectML)
+            {
+                SwitchToCpu(language, useVad, traditional, ex);
+                collector = new TimedTranscriptCollector();
+                latest = new(string.Empty, string.Empty);
+                int replayedSamples = 0;
+                foreach (float[] replayChunk in audio.ToArray().Chunk(8_960))
+                {
+                    TranscriptionUpdate? replay = _engine.Process(replayChunk);
+                    replayedSamples += replayChunk.Length;
+                    if (replay is not null)
+                    {
+                        latest = replay;
+                        collector.Update(replay.RawText, replayedSamples / 16_000d);
+                        PublishUpdate(replay, inject);
+                    }
+                }
+                final = _engine.Flush();
+            }
             if (final is not null)
             {
                 latest = final;
@@ -299,9 +413,31 @@ public partial class MainWindow : Window
         CancellationToken cancellationToken)
     {
         float[] audio = AudioFileLoader.LoadMono16Khz(fileName);
+        try
+        {
+            return TranscribeAudio(audio, language, vad, traditional, cancellationToken);
+        }
+        catch (Exception ex) when (_engine?.Backend == InferenceBackend.DirectML)
+        {
+            SwitchToCpu(language, vad, traditional, ex);
+            return TranscribeAudio(audio, language, vad, traditional, cancellationToken, sessionAlreadyStarted: true);
+        }
+    }
+
+    private RecognitionSessionResult TranscribeAudio(
+        float[] audio,
+        string language,
+        bool vad,
+        bool traditional,
+        CancellationToken cancellationToken,
+        bool sessionAlreadyStarted = false)
+    {
         var collector = new TimedTranscriptCollector();
         TranscriptionUpdate latest = new(string.Empty, string.Empty);
-        _engine!.BeginSession(language, vad, traditional);
+        if (!sessionAlreadyStarted)
+        {
+            BeginSessionWithFallback(language, vad, traditional);
+        }
 
         const int chunkSamples = 8_960;
         for (int start = 0; start < audio.Length; start += chunkSamples)
@@ -310,7 +446,7 @@ public partial class MainWindow : Window
             int count = Math.Min(chunkSamples, audio.Length - start);
             var chunk = new float[count];
             Array.Copy(audio, start, chunk, 0, count);
-            TranscriptionUpdate? update = _engine.Process(chunk);
+            TranscriptionUpdate? update = _engine!.Process(chunk);
             if (update is not null)
             {
                 latest = update;
@@ -319,7 +455,7 @@ public partial class MainWindow : Window
             }
         }
 
-        TranscriptionUpdate? final = _engine.Flush();
+        TranscriptionUpdate? final = _engine!.Flush();
         if (final is not null)
         {
             latest = final;
@@ -337,7 +473,7 @@ public partial class MainWindow : Window
         if (!diarization || result.Audio.Length == 0 || string.IsNullOrWhiteSpace(result.RawText))
         {
             TranscriptBox.Text = result.DisplayText;
-            StatusText.Text = "轉錄完成（純 CPU）。";
+            StatusText.Text = $"轉錄完成（{CurrentBackendName()}）。";
             return;
         }
 
@@ -363,7 +499,7 @@ public partial class MainWindow : Window
                 traditional);
             TranscriptBox.ScrollToEnd();
             int speakerCount = segments.Select(segment => segment.Speaker).Distinct().Count();
-            StatusText.Text = "轉錄與說話者分離完成（純 CPU）。";
+            StatusText.Text = $"轉錄與說話者分離完成（ASR：{CurrentBackendName()}；說話者：CPU）。";
             ProgressText.Text = speakerCount > 0
                 ? $"偵測到 {speakerCount} 位說話者；標籤為自動推測，可直接編修儲存後的文字檔。"
                 : "沒有偵測到可標記的說話片段，已保留完整逐字稿。";
@@ -396,6 +532,66 @@ public partial class MainWindow : Window
         return (LanguageBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "auto";
     }
 
+    private InferenceBackendPreference SelectedBackendPreference()
+    {
+        return (BackendBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() switch
+        {
+            "dml" => InferenceBackendPreference.DirectML,
+            "cpu" => InferenceBackendPreference.Cpu,
+            _ => InferenceBackendPreference.Auto,
+        };
+    }
+
+    private void SetBackendBox(InferenceBackendPreference preference)
+    {
+        string tag = preference switch
+        {
+            InferenceBackendPreference.DirectML => "dml",
+            InferenceBackendPreference.Cpu => "cpu",
+            _ => "auto",
+        };
+        BackendBox.SelectedItem = BackendBox.Items
+            .OfType<ComboBoxItem>()
+            .First(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal));
+    }
+
+    private void BeginSessionWithFallback(string language, bool useVad, bool traditional)
+    {
+        try
+        {
+            _engine!.BeginSession(language, useVad, traditional);
+        }
+        catch (Exception ex) when (_engine?.Backend == InferenceBackend.DirectML)
+        {
+            SwitchToCpu(language, useVad, traditional, ex);
+        }
+    }
+
+    private void SwitchToCpu(string language, bool useVad, bool traditional, Exception cause)
+    {
+        _engine?.Dispose();
+        _engine = new NemotronEngine(_installer.ModelDirectory, InferenceBackend.Cpu);
+        _engine.BeginSession(language, useVad, traditional);
+        _backendLoader.InvalidateProfile();
+        string reason = cause.GetBaseException().Message.ReplaceLineEndings(" ");
+        Dispatcher.BeginInvoke(() =>
+        {
+            RuntimeSubtitle.Text = "Nemotron 3.5 ASR · CPU 安全回退";
+            StatusText.Text = "GPU 推論中斷，已切換 CPU 並繼續辨識。";
+            ProgressText.Text = reason;
+        });
+    }
+
+    private string CurrentBackendName() => _engine is null
+        ? "尚未載入"
+        : InferenceBackendPolicy.DisplayName(_engine.Backend);
+
+    private void UpdateRuntimePresentation(InferenceLoadResult loaded)
+    {
+        RuntimeSubtitle.Text = $"Nemotron 3.5 ASR · {InferenceBackendPolicy.DisplayName(loaded.SelectedBackend)} · 說話者分離 CPU";
+        ProgressText.Text = loaded.Detail;
+    }
+
     private void SetBusy(bool busy)
     {
         _busy = busy;
@@ -403,6 +599,7 @@ public partial class MainWindow : Window
         FileButton.IsEnabled = !busy && _engine is not null;
         PrepareButton.IsEnabled = !busy;
         LanguageBox.IsEnabled = !busy;
+        BackendBox.IsEnabled = !busy;
         VadCheck.IsEnabled = !busy;
         TraditionalCheck.IsEnabled = !busy;
         DiarizationCheck.IsEnabled = !busy;

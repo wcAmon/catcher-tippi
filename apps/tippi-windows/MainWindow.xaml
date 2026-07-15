@@ -26,7 +26,7 @@
             </Border>
             <StackPanel Grid.Column="1" Margin="14,1,0,0">
                 <TextBlock Text="Tippi for Windows" FontSize="23" FontWeight="SemiBold" Foreground="#182230" />
-                <TextBlock Text="Nemotron 3.5 ASR · ONNX 說話者分離 · 本機 CPU" Foreground="{StaticResource MutedBrush}" FontSize="13" />
+                <TextBlock x:Name="RuntimeSubtitle" Text="Nemotron 3.5 ASR · CPU / DirectML 自動選擇" Foreground="{StaticResource MutedBrush}" FontSize="13" />
             </StackPanel>
             <Button Grid.Column="2" Content="開啟模型資料夾" Click="OpenModelFolder_Click" VerticalAlignment="Center" />
         </Grid>
@@ -62,6 +62,13 @@
                     <ComboBoxItem Content="한국어" Tag="ko-KR" />
                     <ComboBoxItem Content="Deutsch" Tag="de-DE" />
                     <ComboBoxItem Content="Français" Tag="fr-FR" />
+                </ComboBox>
+                <TextBlock Text="運算" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
+                <ComboBox x:Name="BackendBox" Width="190" Height="36" SelectedValuePath="Tag"
+                          SelectionChanged="BackendBox_SelectionChanged">
+                    <ComboBoxItem Content="自動選擇（建議）" Tag="auto" />
+                    <ComboBoxItem Content="GPU / DirectML（可回退）" Tag="dml" />
+                    <ComboBoxItem Content="CPU" Tag="cpu" />
                 </ComboBox>
                 <CheckBox x:Name="TraditionalCheck" Content="台灣繁體" IsChecked="True" Margin="16,9,0,0" />
                 <CheckBox x:Name="VadCheck" Content="略過靜音" IsChecked="True" Margin="16,9,0,0" />

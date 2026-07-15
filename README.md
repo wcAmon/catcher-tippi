@@ -12,13 +12,17 @@ without Python, PyTorch, NeMo, or ONNX Runtime. Rust owns the model topology,
 caches, audio frontend, control flow, CLI, and C ABI; MLX-C/Metal executes the
 accelerated tensor kernels.
 
-## Windows CPU app
+## Windows app
 
 A native Windows x64 WPF version now lives in `apps/tippi-windows`. It uses a
 pinned INT4 ONNX conversion of the original NVIDIA Nemotron 3.5 ASR model and a
-CPU-only ONNX Runtime GenAI build. Speaker attribution uses small Pyannote INT8
-and NVIDIA TitaNet-S ONNX models through sherpa-onnx after recording stops, so
-CUDA and a discrete GPU are not required.
+CPU / DirectML ONNX Runtime GenAI build. On first launch it probes both backends
+with real speech, caches the result for the current model/runtime/driver
+signature, and safely falls back to CPU if GPU loading or decoding fails. The
+current pinned INT4 graph is not DirectML-compatible on the tested Intel and
+NVIDIA GPUs, so this revision selects CPU. Speaker attribution uses small
+Pyannote INT8 and NVIDIA TitaNet-S ONNX models through sherpa-onnx after
+recording stops, so CUDA and a discrete GPU are not required.
 The self-contained build includes .NET and the Visual C++ runtime:
 
 ```powershell

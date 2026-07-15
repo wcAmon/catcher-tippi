@@ -2,7 +2,7 @@
 
 Tippi uses the following third-party components:
 
-- NVIDIA Nemotron 3.5 ASR Streaming 0.6B, under the NVIDIA Open Model License.
+- NVIDIA Nemotron 3.5 ASR Streaming 0.6B, under the OpenMDW-1.1 license.
   The application downloads the pinned INT4 ONNX conversion directly from
   `onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4`; model files are
   not embedded in the application.
@@ -15,15 +15,18 @@ Tippi uses the following third-party components:
   The application downloads a pinned ONNX conversion; model files are not
   embedded.
 - ONNX Runtime GenAI and ONNX Runtime, copyright Microsoft Corporation, MIT.
+- DirectML and the D3D12 redistributable, copyright Microsoft Corporation,
+  distributed under their accompanying Microsoft license terms.
 - NAudio, copyright Mark Heath, MIT.
 - OpenccNetLib, MIT; its bundled OpenCC dictionaries are Apache-2.0.
 - Microsoft Visual C++ Redistributable files, distributed under the Microsoft
   Visual Studio license terms.
 
-The complete ONNX Runtime, ONNX Runtime GenAI, NAudio, Pyannote segmentation,
-and Apache-2.0 license/notices are included in the `Licenses` directory beside
-the app. `OpenCC-Dictionaries-LICENSE.txt` contains the complete Apache-2.0
-text that also applies to the bundled sherpa-onnx runtime.
+The complete ONNX Runtime, ONNX Runtime GenAI, DirectML/D3D12 redistributable,
+NAudio, Pyannote segmentation, and Apache-2.0 license/notices are included in
+the `Licenses` directory beside the app. `OpenCC-Dictionaries-LICENSE.txt`
+contains the complete Apache-2.0 text that also applies to the bundled
+sherpa-onnx runtime.
 
 OpenccNetLib project license:
 https://github.com/laisuk/OpenccNet/blob/master/OpenccNetLib/LICENSE

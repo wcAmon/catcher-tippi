@@ -35,11 +35,13 @@ public sealed class ModelManifestTests
     }
 
     [Theory]
-    [InlineData("onnxruntime-genai.dll", "97ee417fa958a7607c1ba57e14b5e3febc383b3f74d394d5e8b636c165384209")]
-    [InlineData("onnxruntime.dll", "daa77083a45bf525da0dde9e87f85d8eb146f58f9c9aa7124ca84545e1c0f148")]
+    [InlineData("D3D12Core.dll", "8a23d826b25b4329522ff451cb52b7f2b34d7f2913cfeb878371ce8bd765fe2d")]
+    [InlineData("DirectML.dll", "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1")]
+    [InlineData("onnxruntime-genai.dll", "7b34b5856b1b0b5d8590be37300fe6224169f220a6708e51018b1f90b1dfc3b7")]
+    [InlineData("onnxruntime.dll", "cb0380c4072a32d1e2a1aeda9d54b94c4f645df9f81e9b37535559e57938c908")]
     [InlineData("sherpa-onnx.dll", "9cef5904ac912106dfa8aaf0c70a4e5a86370fe08781f981d37cbd49e98fd37b")]
     [InlineData("sherpa-onnx-c-api.dll", "614878147c05121aeb1514ec4fb3e48b89751591532eca9208235b9ab868306a")]
-    public void BuildUsesPinnedCpuRuntime(string fileName, string expectedSha256)
+    public void BuildUsesPinnedWindowsRuntime(string fileName, string expectedSha256)
     {
         string path = Path.Combine(AppContext.BaseDirectory, fileName);
         Assert.True(File.Exists(path), $"Missing native runtime: {path}");
