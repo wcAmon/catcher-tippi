@@ -1,0 +1,101 @@
+<Window x:Class="Tippi.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tippi — 本機語音轉文字" Height="700" Width="960"
+        MinHeight="600" MinWidth="780" Background="#F4F5F9"
+        FontFamily="Segoe UI, Microsoft JhengHei UI"
+        Loaded="Window_Loaded" Closing="Window_Closing">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border Width="48" Height="48" CornerRadius="14" Background="{StaticResource AccentBrush}">
+                <TextBlock Text="T" FontSize="26" FontWeight="Bold" Foreground="White"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="14,1,0,0">
+                <TextBlock Text="Tippi for Windows" FontSize="23" FontWeight="SemiBold" Foreground="#182230" />
+                <TextBlock Text="Nemotron 3.5 ASR · ONNX 說話者分離 · 本機 CPU" Foreground="{StaticResource MutedBrush}" FontSize="13" />
+            </StackPanel>
+            <Button Grid.Column="2" Content="開啟模型資料夾" Click="OpenModelFolder_Click" VerticalAlignment="Center" />
+        </Grid>
+
+        <Border Grid.Row="1" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock x:Name="StatusText" Text="正在檢查模型…" FontWeight="SemiBold" Foreground="#344054" />
+                    <ProgressBar x:Name="ModelProgress" Height="7" Margin="0,9,18,0" Minimum="0" Maximum="1" Value="0" />
+                    <TextBlock x:Name="ProgressText" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" />
+                </StackPanel>
+                <Button Grid.Column="1" x:Name="PrepareButton" Content="下載／修復模型" Click="PrepareButton_Click"
+                        VerticalAlignment="Center" IsEnabled="False" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+            <WrapPanel VerticalAlignment="Center">
+                <Button x:Name="StartButton" Content="● 開始錄音" Style="{StaticResource PrimaryButton}"
+                        Click="StartButton_Click" IsEnabled="False" />
+                <Button x:Name="StopButton" Content="■ 停止" Click="StopButton_Click" IsEnabled="False" />
+                <Button x:Name="FileButton" Content="轉錄音訊檔" Click="FileButton_Click" IsEnabled="False" />
+                <TextBlock Text="語言" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
+                <ComboBox x:Name="LanguageBox" Width="150" Height="36" SelectedValuePath="Tag" SelectedIndex="0">
+                    <ComboBoxItem Content="自動偵測" Tag="auto" />
+                    <ComboBoxItem Content="中文（普通話）" Tag="zh-CN" />
+                    <ComboBoxItem Content="English (US)" Tag="en-US" />
+                    <ComboBoxItem Content="日本語" Tag="ja-JP" />
+                    <ComboBoxItem Content="한국어" Tag="ko-KR" />
+                    <ComboBoxItem Content="Deutsch" Tag="de-DE" />
+                    <ComboBoxItem Content="Français" Tag="fr-FR" />
+                </ComboBox>
+                <CheckBox x:Name="TraditionalCheck" Content="台灣繁體" IsChecked="True" Margin="16,9,0,0" />
+                <CheckBox x:Name="VadCheck" Content="略過靜音" IsChecked="True" Margin="16,9,0,0" />
+                <CheckBox x:Name="DiarizationCheck" Content="說話者分離（停止後分析）" IsChecked="True" Margin="16,9,0,0"
+                          ToolTip="即時辨識維持順暢；停止錄音或檔案轉錄完成後，再以 CPU 標記不同說話者。" />
+            </WrapPanel>
+        </Border>
+
+        <Border Grid.Row="3" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <DockPanel Margin="0,0,0,10">
+                    <TextBlock Text="逐字稿" FontSize="16" FontWeight="SemiBold" Foreground="#182230" />
+                    <CheckBox x:Name="InjectCheck" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                              Content="語音輸入到目前程式（說「幫我送出」按 Enter）" Foreground="#475467" />
+                </DockPanel>
+                <TextBox Grid.Row="1" x:Name="TranscriptBox" AcceptsReturn="True" IsReadOnly="True"
+                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0"
+                         Background="#FAFAFC" Padding="14" FontSize="17" TextBlock.LineHeight="27"
+                         AutomationProperties.Name="逐字稿內容" />
+            </Grid>
+        </Border>
+
+        <DockPanel Grid.Row="4" Margin="0,14,0,0">
+            <TextBlock Text="所有語音與推論都留在這台電腦；只在首次下載模型時連線。"
+                       Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="清除" Click="ClearButton_Click" />
+                <Button Content="複製" Click="CopyButton_Click" />
+                <Button Content="儲存…" Click="SaveButton_Click" Margin="0" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>

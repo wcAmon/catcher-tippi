@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Tippi</AssemblyName>
+    <RootNamespace>Tippi.Windows</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>zh-Hant;en</SatelliteResourceLanguages>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The managed API is stable; the pinned native CPU runtime below adds
+         Nemotron multilingual/lang_id support that is newer than NuGet 0.13. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI.Managed" Version="0.13.0" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="OpenccNetLib" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pin the managed/native sherpa pair ourselves so it shares the single
+         ONNX Runtime 1.27 DLL used by Nemotron instead of copying a second ORT. -->
+    <Reference Include="sherpa-onnx">
+      <HintPath>Runtime\win-x64\sherpa-onnx.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Licenses\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Runtime\win-x64\*.dll">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

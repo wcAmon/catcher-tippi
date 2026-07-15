@@ -13,5 +13,10 @@
 /.worktrees/
 /apps/tippi/.build/
 /apps/tippi/build/
+/apps/tippi-windows/bin/
+/apps/tippi-windows/obj/
+/apps/tippi-windows.tests/bin/
+/apps/tippi-windows.tests/obj/
+/.tools/
 
 /.env

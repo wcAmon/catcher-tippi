@@ -12,6 +12,24 @@ without Python, PyTorch, NeMo, or ONNX Runtime. Rust owns the model topology,
 caches, audio frontend, control flow, CLI, and C ABI; MLX-C/Metal executes the
 accelerated tensor kernels.
 
+## Windows CPU app
+
+A native Windows x64 WPF version now lives in `apps/tippi-windows`. It uses a
+pinned INT4 ONNX conversion of the original NVIDIA Nemotron 3.5 ASR model and a
+CPU-only ONNX Runtime GenAI build. Speaker attribution uses small Pyannote INT8
+and NVIDIA TitaNet-S ONNX models through sherpa-onnx after recording stops, so
+CUDA and a discrete GPU are not required.
+The self-contained build includes .NET and the Visual C++ runtime:
+
+```powershell
+.\apps\tippi-windows\scripts\build.ps1
+.\artifacts\Tippi-win-x64\Tippi.exe
+```
+
+See [`apps/tippi-windows/README.md`](apps/tippi-windows/README.md) for Windows
+requirements, model storage, features, limitations, and tests. The original
+MLX/Metal implementation and macOS app remain unchanged.
+
 ## Requirements
 
 - arm64 Apple Silicon Mac running macOS 15 or newer;
