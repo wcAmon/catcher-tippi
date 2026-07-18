@@ -63,6 +63,15 @@ export function startServer(
     { hostname: "127.0.0.1", port, onListen: () => {} },
     (request) => {
       const url = new URL(request.url);
+      if (url.pathname === "/favicon.ico") {
+        // 瀏覽器一律自動請求 /favicon.ico(即使頁面沒有 <link rel="icon">),
+        // 沒有這條路由會落到 serveStatic 的 404,在主控台留下一則無害但
+        // 顯眼的錯誤(Task 5 mac 實機瀏覽器驗證記錄到的 Finding A,見
+        // `.superpowers/sdd/task-5-rehearsal-log.md`)。回 204 No Content
+        // 是最小解法:不需要真的準備一個 .ico 二進位資產,瀏覽器收到 204
+        // 就視為「確實查過了、沒有圖示」,不會重試也不會顯示錯誤。
+        return new Response(null, { status: 204 });
+      }
       if (url.pathname === "/ws") {
         return handleWebSocketUpgrade(request, engine);
       }

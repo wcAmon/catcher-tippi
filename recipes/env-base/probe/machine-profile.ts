@@ -14,13 +14,20 @@
  *     --allow-sys=systemMemoryInfo \
  *     --allow-read=$HOME/tmuh-apps \
  *     --allow-write=$HOME/tmuh-apps \
- *     --allow-env=HOME,USERPROFILE \
+ *     --allow-env=HOME,USERPROFILE,TMUH_APPS_DIR \
  *     recipes/env-base/probe/machine-profile.ts
  *
  * - `--allow-sys=systemMemoryInfo`:讀取實體記憶體總量(`Deno.systemMemoryInfo()`)。
- * - `--allow-read`/`--allow-write=$HOME/tmuh-apps`:讀取既有 profile 做 merge、寫入新 profile。
- * - `--allow-env=HOME,USERPROFILE`:解析使用者家目錄以定位 `~/tmuh-apps`
- *   (mac/Linux 用 `HOME`,Windows 用 `USERPROFILE`)。
+ * - `--allow-read`/`--allow-write=$HOME/tmuh-apps`:讀取既有 profile 做 merge、寫入新 profile
+ *   (`TMUH_APPS_DIR` 覆寫時,呼叫端要把這兩個旗標換成對應的覆寫路徑,見下方)。
+ * - `--allow-env=HOME,USERPROFILE,TMUH_APPS_DIR`:解析使用者家目錄以定位
+ *   `~/tmuh-apps`(mac/Linux 用 `HOME`,Windows 用 `USERPROFILE`);
+ *   `TMUH_APPS_DIR` 是測試/演練情境的覆寫(見 {@link defaultProfilePath}
+ *   的 why 說明),語意對齊 `recipes/tomato-ears/reference/main.ts` 的
+ *   `resolveAppDir`/`resolveMachineProfilePath`——同一個變數名,同一種
+ *   「整棵替代根目錄」語意,兩處各自獨立支援(不共用程式碼,見配方
+ *   獨立組裝的既有慣例),但行為必須一致,否則 env-base 探測出來的路徑
+ *   會跟 tomato-ears 讀 machine-profile 的路徑對不上。
  */
 
 /** 本腳本探測出的欄位;`merge` 時只有這些鍵會被覆寫。 */
@@ -110,8 +117,24 @@ function homeDir(): string {
   return home;
 }
 
-/** `~/tmuh-apps/_machine/machine-profile.json` 的預設路徑(店規 §5 目錄慣例)。 */
+/**
+ * `~/tmuh-apps/_machine/machine-profile.json` 的預設路徑(店規 §5 目錄慣例)。
+ *
+ * `TMUH_APPS_DIR` 覆寫(why):測試/演練情境需要把整套安裝指到非真實
+ * `HOME` 的位置,但本腳本原本完全不認識這個變數(Task 5 mac 演練的卡點
+ * #2,見 `.superpowers/sdd/task-5-rehearsal-log.md`)——演練當下只能靠
+ * 覆寫 `HOME` 環境變數繞過,不夠直接。語意對齊
+ * `recipes/tomato-ears/reference/main.ts` 的 `resolveAppDir`/
+ * `resolveMachineProfilePath`:`TMUH_APPS_DIR` 的值 = `~/tmuh-apps` 的
+ * 替代根目錄本身(不是它的上一層),設定時直接回傳
+ * `${TMUH_APPS_DIR}/_machine/machine-profile.json`,完全不查
+ * `HOME`/`USERPROFILE`(未設定時才落回原本的 `homeDir()` 邏輯)。
+ */
 export function defaultProfilePath(): string {
+  const override = Deno.env.get("TMUH_APPS_DIR");
+  if (override !== undefined) {
+    return `${override}/_machine/machine-profile.json`;
+  }
   return `${homeDir()}/tmuh-apps/_machine/machine-profile.json`;
 }
 

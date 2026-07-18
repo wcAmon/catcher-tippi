@@ -217,6 +217,11 @@ startButton.addEventListener("click", () => {
   startRecording().catch((err) => {
     showError(`無法開始錄音:${err instanceof Error ? err.message : String(err)}`);
     teardownSession();
+    // 失敗也可能發生在「等待麥克風授權…」提示還顯示著的當下(例如使用者
+    // 直接在瀏覽器提示上按了「封鎖」)——同樣要清掉,不留一個永遠卡著的
+    // 過渡文字。WS 連線本身不會因為麥克風授權被拒而斷線,所以直接回
+    // 「已連線」,不需要另外判斷。
+    setConnectionStatus("已連線");
     startButton.disabled = false;
     stopButton.disabled = true;
   });
@@ -232,6 +237,16 @@ async function startRecording() {
   clearError();
   startButton.disabled = true;
 
+  // getUserMedia() 在使用者對瀏覽器原生麥克風授權提示做出回應之前會
+  // 一直 pending——這段期間 start/stop 兩顆按鈕都是 disabled(見上一行與
+  // 下方呼叫端的 catch 分支),如果畫面上完全沒有文字提示,使用者會看到
+  // 一個看似卡住的靜止畫面,不知道要去找瀏覽器彈出的授權提示(尤其該
+  // 提示可能被瀏覽器擋在網址列旁邊的小圖示、沒有明顯彈窗)。Task 5 的
+  // mac 實機瀏覽器驗證記錄到這個 Finding B(見
+  // `.superpowers/sdd/task-5-rehearsal-log.md`),真正的麥克風擷取仍需
+  // 人工驗證,但這個過渡態的文字提示不需要真麥克風就能修。
+  setConnectionStatus("等待麥克風授權…");
+
   // channelCount: 1——mono。downsampler-worklet.js 只讀 inputs[0][0]
   // (第 0 聲道),要求瀏覽器一開始就只給單聲道,避免立體聲輸入時
   // worklet 靜靜地把右聲道整個丟掉而沒有任何提示。
@@ -239,6 +254,11 @@ async function startRecording() {
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     video: false,
   });
+
+  // 授權已核可、麥克風串流到手——把狀態文字換回「已連線」。WS 連線本身
+  // 從頭到尾沒有斷過,這行只是清掉上面暫時蓋掉的等待提示,不是重新宣告
+  // 連線成功。
+  setConnectionStatus("已連線");
 
   // 麥克風一到手就立刻建立(部分填充的)session——而不是等所有 await 都
   // 成功後才一次性賦值。why:這個函式後面還有兩個可能失敗的非同步步驟

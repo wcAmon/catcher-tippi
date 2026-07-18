@@ -233,6 +233,20 @@ Deno.test("靜態檔案:真正的 ui/ 四個檔案(index.html/app.js/downsampler
   }
 });
 
+Deno.test("/favicon.ico 固定回 204 No Content(瀏覽器自動請求,零額外資產解法)", async () => {
+  const uiDir = await makeTempAppDir({ "index.html": "ok" });
+  const stub = createStubEngine();
+  const server = startServer(uiDir, stub.asEngineClient, 0);
+  try {
+    const response = await fetch(`http://127.0.0.1:${portOf(server)}/favicon.ico`);
+    assertEquals(response.status, 204);
+    await response.body?.cancel();
+  } finally {
+    await server.shutdown();
+    await Deno.remove(uiDir, { recursive: true });
+  }
+});
+
 Deno.test("WS 全流程:ready → start → binary chunk → partial → stop → final", async () => {
   const uiDir = await makeTempAppDir({ "index.html": "ok" });
   const stub = createStubEngine("fake");

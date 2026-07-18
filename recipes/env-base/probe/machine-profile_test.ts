@@ -4,13 +4,17 @@
  * 執行(所需權限旗標;`Deno.test()` 的 `permissions` 選項只能收斂、
  * 不能升級父行程權限,所以必須在呼叫 `deno test` 時就給對——這就是
  * 「權限旗標各測試檔自帶」的意思:旗標寫在這份檔案的說明裡,由執行者照抄):
- *   deno test --allow-read --allow-write --allow-sys=systemMemoryInfo \
+ *   deno test --allow-read --allow-write --allow-env --allow-sys=systemMemoryInfo \
  *     recipes/env-base/probe/machine-profile_test.ts
+ * (`--allow-env` 涵蓋 `HOME`/`USERPROFILE`/`TMUH_APPS_DIR`——
+ * `defaultProfilePath` 的覆寫測試需要讀寫 `TMUH_APPS_DIR`,既有的
+ * `homeDir()` 路徑需要 `HOME`/`USERPROFILE`。)
  */
 
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert@^1.0.19";
 import {
   buildProbeFields,
+  defaultProfilePath,
   mergeProfile,
   probeAndWrite,
   type ProbeFields,
@@ -108,5 +112,51 @@ Deno.test(
     assertEquals(onDisk.os, merged.os);
 
     await Deno.remove(dir, { recursive: true });
+  },
+);
+
+/** 在暫時設定/清除 TMUH_APPS_DIR 的情況下執行 `fn`,結束後還原原值——
+ * 避免測試順序影響彼此(env 是行程全域狀態)。與
+ * `recipes/tomato-ears/reference/main_test.ts` 的同名 helper 是刻意的
+ * 重複(配方彼此獨立組裝,不共用測試程式碼),不是漏未抽共用模組。 */
+function withTmuhAppsDir(value: string | undefined, fn: () => void): void {
+  const previous = Deno.env.get("TMUH_APPS_DIR");
+  try {
+    if (value === undefined) Deno.env.delete("TMUH_APPS_DIR");
+    else Deno.env.set("TMUH_APPS_DIR", value);
+    fn();
+  } finally {
+    if (previous === undefined) Deno.env.delete("TMUH_APPS_DIR");
+    else Deno.env.set("TMUH_APPS_DIR", previous);
+  }
+}
+
+Deno.test(
+  "defaultProfilePath：TMUH_APPS_DIR 設定時 = <override>/_machine/machine-profile.json，完全不查 HOME",
+  () => {
+    withTmuhAppsDir("/tmp/fake-tmuh-apps", () => {
+      assertEquals(
+        defaultProfilePath(),
+        "/tmp/fake-tmuh-apps/_machine/machine-profile.json",
+      );
+    });
+  },
+);
+
+Deno.test(
+  "defaultProfilePath：未設定 TMUH_APPS_DIR 時落回 $HOME/tmuh-apps/_machine/machine-profile.json（既有行為不變）",
+  () => {
+    withTmuhAppsDir(undefined, () => {
+      const home = Deno.env.get("HOME") ?? Deno.env.get("USERPROFILE");
+      if (home === undefined) {
+        // 這台機器兩者都沒有(理論上不會發生於一般 mac/Linux/Windows
+        // 開發環境),沒有基準可比對,略過而非誤判失敗。
+        return;
+      }
+      assertEquals(
+        defaultProfilePath(),
+        `${home}/tmuh-apps/_machine/machine-profile.json`,
+      );
+    });
   },
 );

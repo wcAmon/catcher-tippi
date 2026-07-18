@@ -34,6 +34,28 @@ profile 指令，照做即可）。驗證：
 deno --version
 ```
 
+**第三種情境——`deno` 已經裝過，但 `PATH` 沒有它**（例如上一個 agent session
+裝的、或使用者手動裝過、只是這次開的是新終端機）：先用
+
+```bash
+ls ~/.deno/bin/deno
+```
+
+確認可執行檔是否已存在。如果存在，**不要重跑 curl 安裝腳本**（重裝沒有
+必要，還會浪費一次網路下載）——只要把 `~/.deno/bin` 加進當前 shell session 的
+`PATH` 即可：
+
+```bash
+export PATH="$HOME/.deno/bin:$PATH"
+```
+
+再跑 `deno --version` 確認。**注意**：這個 `export` 只對「當前這個 shell
+session」有效——如果你的執行環境每個指令都是獨立行程（shell state 不跨
+指令持久化），之後每一條要用到 `deno` 的指令前都要重新 `export` 一次；
+若要讓使用者「下次開新終端機也不必再處理」，把同一行 `export PATH=...`
+追加進使用者的 shell profile（`~/.zshrc`/`~/.bashrc`/`~/.bash_profile`
+等，依實際使用的 shell 而定）才會持久生效。
+
 Windows：`winget install DenoLand.Deno`（另見
 `scripts/bootstrap-windows-host.md` 的「mac 端 deno 安裝紀錄」附註章節， 內有
 Windows 對照版本號）。
@@ -57,16 +79,40 @@ mkdir -p ~/tmuh-apps/_machine
 
 ## Step 3：跑硬體探測
 
+**在配方包目錄執行**（本文件把自己包裝成「像從 store 下載的獨立配方包」
+——`recipes/env-base/` 本身就是這份配方包的根目錄，不假設你手上有整個
+repo）。下面指令的 `probe/machine-profile.ts` 是**相對配方包根目錄** 的路徑，先
+`cd` 到 `recipes/env-base/`（或你拿到的配方包解壓後的根目錄） 再執行：
+
 ```bash
+cd recipes/env-base   # 或你的配方包解壓根目錄
 deno run \
   --allow-sys=systemMemoryInfo \
   --allow-read=$HOME/tmuh-apps \
   --allow-write=$HOME/tmuh-apps \
-  --allow-env=HOME,USERPROFILE \
-  recipes/env-base/probe/machine-profile.ts
+  --allow-env=HOME,USERPROFILE,TMUH_APPS_DIR \
+  probe/machine-profile.ts
 ```
 
-這會產出（或**冪等更新**）`~/tmuh-apps/_machine/machine-profile.json`，內容包括：
+`--allow-env` 多列的 `TMUH_APPS_DIR` 對應腳本支援的覆寫（見下方）：一般
+使用者安裝不需要設定這個變數，探測腳本會照常用 `HOME`/`USERPROFILE` 算出
+`~/tmuh-apps`；只有測試/演練情境（需要把整套安裝指到非真實 HOME 的位置）
+才需要設定 `TMUH_APPS_DIR`，設定時探測腳本會直接把 profile 寫到
+`$TMUH_APPS_DIR/_machine/machine-profile.json`，不再查 `HOME`/
+`USERPROFILE`——此時 `--allow-read`/`--allow-write` 也要跟著指向
+`$TMUH_APPS_DIR`（而不是 `$HOME/tmuh-apps`），例如：
+
+```bash
+TMUH_APPS_DIR=/path/to/替代根目錄 deno run \
+  --allow-sys=systemMemoryInfo \
+  --allow-read=$TMUH_APPS_DIR \
+  --allow-write=$TMUH_APPS_DIR \
+  --allow-env=HOME,USERPROFILE,TMUH_APPS_DIR \
+  probe/machine-profile.ts
+```
+
+這會產出（或**冪等更新**）`~/tmuh-apps/_machine/machine-profile.json` （或
+`TMUH_APPS_DIR` 覆寫時的等效路徑），內容包括：
 
 | 欄位          | 說明                                          |
 | ------------- | --------------------------------------------- |
@@ -103,3 +149,10 @@ merge，重跑不會動到那些欄位，見 `recipes/env-base/probe/machine-pro
 
 完成以上三項，App 0 即告完成，可以繼續安裝其他 mini-app（例如
 `recipes/tomato-ears/`）。
+
+**附註（人力步驟）**：env-base 本身（Deno 安裝 + 硬體探測）全程可以由 agent
+獨力完成，不需要使用者動手。但下游某些 mini-app 安裝完成、啟動
+服務後，仍會有必須由「人」完成的步驟——例如 tomato-ears 首次錄音前
+瀏覽器會彈出麥克風授權提示，那個提示只能由使用者本人點擊，agent 無法
+代為操作瀏覽器原生對話框。跑到那類 app 的配方文件時留意它是否有標註
+這件事（tomato-ears 見 `recipes/tomato-ears/PLAN.md` Step 5 的附註）。
