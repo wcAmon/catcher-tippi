@@ -56,19 +56,51 @@ session」有效——如果你的執行環境每個指令都是獨立行程（s
 追加進使用者的 shell profile（`~/.zshrc`/`~/.bashrc`/`~/.bash_profile`
 等，依實際使用的 shell 而定）才會持久生效。
 
-Windows：`winget install DenoLand.Deno`（另見
-`scripts/bootstrap-windows-host.md` 的「mac 端 deno 安裝紀錄」附註章節， 內有
-Windows 對照版本號）。
+Windows：
+
+```cmd
+winget install DenoLand.Deno -e --accept-package-agreements --accept-source-agreements
+```
+
+（另見 `scripts/bootstrap-windows-host.md` 的「mac 端 deno 安裝紀錄」附註
+章節，內有 Windows 對照版本號）。驗證：
+
+```cmd
+deno --version
+```
+
+**PATH 生效時機**：winget 安裝完會提示「重新啟動命令介面以使用新值」——
+如果你的操作方式是每條指令都經由新的 shell/ssh session 送出（例如 ssh 遠端驅動
+Windows 機），**不需要**額外處理：下一條指令天然是新 session，
+會直接拿到更新後的 PATH。只有在同一個互動式 cmd/PowerShell 視窗裡連續
+下指令才需要真的關掉重開視窗。
 
 **已知結果（本次在 mac 上實際安裝，供核對用，不代表你的機器一定一樣）：** Deno
 `2.9.3`（long term support），路徑 `~/.deno/bin/deno` （完整輸出見
 `scripts/bootstrap-windows-host.md` 附註）。
+
+**已知結果（Task 6 於 Windows 11 x64 實際安裝，供核對用）：** Deno
+`2.9.3`（build 標示為 `stable, release`，不是 mac 的 `long term support`——winget
+發行版的 build 字串不同，版本語意相同，不 構成問題），路徑
+`C:\Users\<user>\AppData\Local\Microsoft\WinGet\Links\deno.exe`（shim）。
+完整逐字稿見 `.superpowers/sdd/task-6-rehearsal-log.md`「階段一 Step 1」。
 
 ## Step 2：建立標準目錄
 
 ```bash
 mkdir -p ~/tmuh-apps/_machine
 ```
+
+Windows（cmd）對照：
+
+```cmd
+mkdir C:\Users\<user>\tmuh-apps\_machine
+```
+
+cmd 的 `mkdir` 天然遞迴建立中間目錄（等效 bash 的 `-p`），不需要額外
+旗標。（也不必手動先建：下游探測腳本自己會
+`Deno.mkdir(dir, {
+recursive: true })`；這裡列出來是給想要提前確認目錄結構的使用者。）
 
 目錄慣例（之後每個 mini-app 沿用）：
 
@@ -110,6 +142,38 @@ TMUH_APPS_DIR=/path/to/替代根目錄 deno run \
   --allow-env=HOME,USERPROFILE,TMUH_APPS_DIR \
   probe/machine-profile.ts
 ```
+
+### Windows（cmd）對照 + 這裡的兩個 cmd 陷阱
+
+```cmd
+cd recipes\env-base
+deno run --allow-sys=systemMemoryInfo --allow-read=%USERPROFILE%\tmuh-apps --allow-write=%USERPROFILE%\tmuh-apps --allow-env=HOME,USERPROFILE,TMUH_APPS_DIR probe/machine-profile.ts
+```
+
+若要用 `TMUH_APPS_DIR` 覆寫（測試/演練情境），**不要**照抄 bash 的 `VAR=x cmd`
+單行語法直譯成 cmd 的 `set VAR=x & cmd`：
+
+> **cmd 陷阱警告（Task 6 Windows 演練卡點 #1 實測發現）**
+>
+> 1. **`%VAR%` 在整行解析期展開，早於同一行的 `set` 執行**。單行
+>    `set TMUH_APPS_DIR=C:\...\tmuh-apps & deno run --allow-read=%TMUH_APPS_DIR% ...`
+>    裡的 `%TMUH_APPS_DIR%` 拿到的是**這行指令開始前**的舊值（未定義=
+>    空字串），不是同一行 `set` 剛設的新值——結果旗標實際是
+>    `--allow-read=`（空），Deno 報 `NotCapable`。**手動先建目錄也救
+>    不了**：根因不是目錄不存在，是旗標本身拿到空字串。
+>    **正確寫法：權限旗標直接寫字面路徑**，`set` 只留給 deno 腳本自己 在執行期用
+>    `Deno.env.get("TMUH_APPS_DIR")` 讀（子行程執行期讀取， 不受 cmd
+>    解析期展開影響）：
+>    ```cmd
+>    set TMUH_APPS_DIR=C:\Users\<user>\tmuh-apps & cd /d C:\...\recipes\env-base & deno run --allow-sys=systemMemoryInfo --allow-read=C:\Users\<user>\tmuh-apps --allow-write=C:\Users\<user>\tmuh-apps --allow-env=HOME,USERPROFILE,TMUH_APPS_DIR probe/machine-profile.ts
+>    ```
+> 2. **`set X=value & ...` 會把 `&` 前那個空格也算進值裡**（cmd 把 `value`
+>    整段當成值，尾隨空格照留）。Windows 路徑解析對「目錄名尾
+>    隨空格」通常寬容（Task 6 實測寫入路徑帶尾隨空格仍正確落地），但這
+>    是僥倖不是保證——安全寫法是帶引號：`set "X=value" & ...`。
+
+完整實測見 `.superpowers/sdd/task-6-rehearsal-log.md`「階段一 Step 2： 卡點
+#1」。
 
 這會產出（或**冪等更新**）`~/tmuh-apps/_machine/machine-profile.json` （或
 `TMUH_APPS_DIR` 覆寫時的等效路徑），內容包括：

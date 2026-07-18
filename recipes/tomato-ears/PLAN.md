@@ -69,6 +69,33 @@ cp "<RECIPE>"/reference/ui/* "<APP>/ui/"
 cp -r "<RECIPE>/verify" "<APP>/verify"
 ```
 
+Windows（cmd）對照（`cp`→`copy`，`cp -r`→`xcopy /E /I`，`mkdir -p`→
+`mkdir`；`<RECIPE>`/`<APP>` 意義同上，換成實際反斜線路徑）：
+
+```cmd
+mkdir "<APP>"
+copy "<RECIPE>\manifest.json" "<APP>\"
+copy "<RECIPE>\deno.json" "<APP>\"
+copy "<RECIPE>\deno.lock" "<APP>\"
+
+mkdir "<APP>\reference"
+copy "<RECIPE>\reference\*.ts" "<APP>\reference\"
+
+mkdir "<APP>\ui"
+copy "<RECIPE>\reference\ui\*" "<APP>\ui\"
+
+xcopy /E /I "<RECIPE>\verify" "<APP>\verify"
+```
+
+`xcopy /E /I` 的 `/E` 遞迴複製含空目錄的子目錄結構、`/I` 在目的地不存在
+時把它當成「要建立的目錄」（沒有這個旗標 xcopy 會反問你目的地是檔案還是
+目錄，卡住互動）；`verify\` 底下的 `fixtures\` 子目錄需要這兩個旗標才會
+一起複製過去。
+
+**Task 6 Windows 演練確認**：逐一翻譯後 `dir <APP>` 核對，目錄結構與上方
+「安裝完成後」的預期一致，無卡點；完整逐字稿見
+`.superpowers/sdd/task-6-rehearsal-log.md`「階段二 Step 1」。
+
 安裝完成後,`<APP>` 的結構應該長這樣(`bin/`/`model/`/`download/` 是
 Step 3 才會出現,現在還不存在):
 
@@ -147,6 +174,35 @@ model/weights.safetensors:下載完成
 如果你之前已經跑過(例如重試),已存在且雜湊相符的檔案會印
 `已存在且雜湊相符,略過下載`,不會重新下載——這是正常行為,不是卡住。
 
+### 預期輸出(Windows,逐字節錄自 Task 6 演練;完整逐字稿見
+
+`.superpowers/sdd/task-6-rehearsal-log.md`「階段二 Step 3」)
+
+```
+Task setup:win deno run --allow-net --allow-read=.,../_machine --allow-write=.,../_machine --allow-run=tar --allow-env=TMUH_APPS_DIR reference/setup.ts
+安裝 tomato-ears 相依到 <APP>(平台:windows-x64)…
+engine host:下載中…
+engine host:下載完成
+engine host:解壓中…
+engine host:已 pin 到 <APP>/bin/engine-host.exe
+model/audio_processor_config.json:下載中…
+model/audio_processor_config.json:下載完成
+（… 其餘 12 個 onnx/config 模型檔逐一下載完成 …）
+安裝完成。可執行 `deno task verify:mac`(Windows:`deno task verify:win`)驗收,或直接 `deno task start:mac`/`start:win` 啟動。
+```
+
+這台演練機器的 manifest 在 Windows 平台 pin 了 13 個模型檔(含
+`encoder.onnx.data` ≈690MB、`decoder.onnx.data` ≈59MB、
+`joint.onnx.data` ≈37MB)+ engine host zip ≈55MB,總計約 850MB,全新
+下載耗時約 7 分鐘,逐檔 SHA-256 驗證全通過。**Windows 內建的 tar
+(bsdtar)可以正常解開 engine host 的 windows zip**,`--allow-run=tar`
+縮圈下解壓 + pin 到 `bin/engine-host.exe` 均正常,無需額外安裝解壓工具。
+
+**Task 6 Windows 演練確認(正常路徑,非錯誤)**:在全新模擬環境(演練前
+確認 `where deno` 找不到 deno,走 winget 全新安裝)下實際跑過一次
+`deno task setup:win`,exit code 0,逐字輸出與上方一致,沒有踩到下表任何
+一列常見錯誤。
+
 ### 常見錯誤
 
 | 症狀                                     | 原因                                                                 | 解法                                                                                                                             |
@@ -214,6 +270,56 @@ pin 的 `asr-host-v0.1.1` 確實已修好那個上游打包缺陷。沒有踩到
 一列常見錯誤。完整逐字稿見 `.superpowers/sdd/task-5-rehearsal-log.md`
 「Step 4」。
 
+### 預期輸出(Windows,逐字節錄自 Task 6 演練;完整逐字稿見
+
+`.superpowers/sdd/task-6-rehearsal-log.md`「階段二 Step 4」)
+
+```
+Task verify:win deno test --allow-net --allow-sys=networkInterfaces --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host.exe --allow-env=TMUH_APPS_DIR verify/
+running 13 tests from ./verify/asr_metric_test.ts（13 個全部 ok）
+running 1 test from ./verify/binding_test.ts
+binding:服務只綁 127.0.0.1——透過本機 LAN 介面位址連線應被拒絕 ... ok (29s)
+running 1 test from ./verify/integrity_test.ts
+integrity:manifest 相依檔案在本機安裝目錄內存在且 SHA-256 相符 ... ok (11s)
+running 2 tests from ./verify/permissions_test.ts（2 個全部 ok）
+running 1 test from ./verify/protocol_test.ts
+protocol:真 host 真模型轉錄 hello-streaming.wav,與參考文字的正規化編輯距離 ≤ 0.25 ... ok (38s)
+running 1 test from ./verify/service_test.ts
+service:WS 全流程(真 host 真模型) ready → start → binary chunks → partial → stop → final ... ok (37s)
+
+ok | 19 passed (15 steps) | 0 failed (1m57s)
+```
+
+跟 mac 的 `19 passed (12 steps)` 相比多 3 個 steps——這台演練機器的
+manifest 在 Windows 平台 pin 了 13 個模型檔(mac 是 10 個),`integrity`
+測試逐檔驗 SHA-256,檔案數不同純粹是這次演練機器 manifest 的平台差異,
+不是缺陷。
+
+> **平台差異警告:耗時與「DML 探測失敗→退回 CPU」是預期現象,不是卡住**
+>
+> - 沒有相容 GPU/驅動的 Windows 機器上,**verify 的每個真引擎 spawn 都
+>   會先探測 DML、失敗後再探測 CPU**(binding/protocol/service 三個測試
+>   各自 spawn 一次引擎,各自重探一次——探測結果**不會**回填進
+>   machine-profile,回填是 `start`/`main.ts` 的職責,見 Step 5)。stderr
+>   會依序印:
+>   ```
+>   [engine host stderr] ...onnxruntime... Non-zero status code returned while running DmlFusedNode_0_74 node ... 80070057 [probe] dml 探測失敗:...
+>   [engine host stderr] [probe] cpu 探測成功:3924~3947 ms
+>   [engine host stderr] [probe] 選定後端:cpu(閾值 AutoGpuThreshold=0.85)
+>   ```
+>   這是**已知/預期現象**(onnxruntime DmlFusedNode 80070057),DML 失敗
+>   後自動退回 CPU 探測成功即為正常路徑,**不代表安裝失敗**。
+> - 本文件開頭 Step 4 寫的「不到十秒」是 **mac(mlx 後端)** 的數字。
+>   **Windows CPU 後端 + 每次 spawn 都重新探測**,三個真引擎測試各花
+>   29–38 秒,整體約 **2 分鐘**(Task 6 實測 `1m57s`)才是 Windows 的
+>   正常耗時,不要以為卡住了。
+
+**Task 6 Windows 演練確認(正常路徑,非錯誤)**：`ok | 19 passed (15
+steps) | 0 failed (1m57s)`,逐字重現上方「預期輸出」,DML 探測失敗、
+CPU 探測成功(~3.9s)、選定 cpu 均符合這台機器的已知預期,沒有踩到上表
+任何一列常見錯誤。完整逐字稿見
+`.superpowers/sdd/task-6-rehearsal-log.md`「階段二 Step 4」。
+
 ## Step 5:啟動(`deno task start:mac` / `start:win`)
 
 ```bash
@@ -253,6 +359,101 @@ port 確認釋放。演練是在無 GUI 環境跑,額外用 `TMUH_NO_BROWSER=1`(
 ——這不是文件要求的預設路徑,只是無 GUI agent 環境的必要調整,一般使用者
 不需要設這個變數。完整逐字稿見 `.superpowers/sdd/task-5-rehearsal-log.md`
 「Step 5」。
+
+### Windows 對照(cmd,Task 6 演練逐字節錄;完整逐字稿見
+
+`.superpowers/sdd/task-6-rehearsal-log.md`「階段二 Step 5/5'」)
+
+```cmd
+set TMUH_NO_BROWSER=1& cd /d <APP> & deno task start:win
+```
+
+(`TMUH_NO_BROWSER=1` 用法同 mac 的降級開關,遠端/無頭情境跳過自動開
+瀏覽器。**注意寫法**:`set TMUH_NO_BROWSER=1&` 刻意**不留空格**再接
+`&`——見 env-base RECIPE.md Step 3 的 cmd 陷阱警告,`set X=value & ...`
+單行語法會把 `&` 前的空格也算進值裡,這裡任何非空值都能用,但養成不留
+空格的習慣可以避免中招;同一份警告也提到 `%VAR%` 展開發生在整行解析
+期、早於 `set` 執行,同樣適用於任何在 Windows 上用 cmd 單行組合
+`set`+變數展開的場景。)
+
+**首跑**(machine-profile 尚未回填 backend,引擎自行探測):
+
+```
+啟動引擎:<APP>/bin/engine-host.exe --model <APP>/model --language auto
+引擎就緒,backend = cpu
+已把 backend=cpu 回填進 machine-profile(下次啟動跳過探測)
+服務已啟動:http://127.0.0.1:43117/
+已依 TMUH_NO_BROWSER 略過自動開啟瀏覽器,請手動開啟:http://127.0.0.1:43117/
+[engine host stderr] ...onnxruntime... Non-zero status code returned while running DmlFusedNode_0_74 node ... 80070057 [probe] dml 探測失敗:...
+[engine host stderr] [probe] cpu 探測成功:3924 ms
+[engine host stderr] [probe] 選定後端:cpu(閾值 AutoGpuThreshold=0.85)
+```
+
+送出指令到「服務已啟動」約 **24 秒**(含 deno 啟動 + DML 探測失敗 +
+CPU 基準測量 ~3.9s + 模型載入)——這是**首跑才有**的一次性成本,DML
+失敗、退回 CPU 是這台機器的已知/預期現象,不是錯誤(同 Step 4 的平台
+差異警告)。回填訊息「已把 backend=cpu 回填進 machine-profile」如實
+出現,對照 machine-profile.json 可看到 `inference.tomato-ears.backend =
+"cpu"` 已寫入,env-base 探測欄位原樣保留。
+
+驗證(Windows 上用 `curl.exe`,注意不是 PowerShell 的 `curl` alias):
+
+```cmd
+curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:43117/
+```
+
+```
+200
+```
+
+綁定範圍核對(等效 mac 的 `lsof -nP -iTCP:43117 -sTCP:LISTEN`):
+
+```cmd
+netstat -ano | findstr :43117
+```
+
+預期唯一一行 `TCP 127.0.0.1:43117 0.0.0.0:0 LISTENING <pid>`——只綁
+loopback,不是 `0.0.0.0`,對齊 SECURITY.md 2.2 節的綁定範圍審查標準。
+
+**停止服務(Windows)**:上方「按 `Ctrl+C` 可以停止服務」假設的是本機
+互動式終端;ssh 遠端驅動/無互動 session 沒有 Ctrl+C 可送,改用
+`taskkill`(`/T` 一併終止 engine-host.exe 子行程):
+
+```cmd
+taskkill /F /T /PID <pid>
+```
+
+`<pid>` 取自上面 `netstat` 那一行最後一欄。跑完再 `netstat` 核對
+LISTENING 消失、port 已釋放。
+
+**二跑**(machine-profile 已有 `backend=cpu` 回填,啟動引擎直接跳過
+探測):
+
+```
+啟動引擎:<APP>/bin/engine-host.exe --model <APP>/model --language auto --backend cpu
+引擎就緒,backend = cpu
+服務已啟動:http://127.0.0.1:43117/
+已依 TMUH_NO_BROWSER 略過自動開啟瀏覽器,請手動開啟:http://127.0.0.1:43117/
+[engine host stderr] [probe] preference=cpu,略過探測。
+```
+
+三個跡象確認二跑跳過探測:啟動引擎那行帶 `--backend cpu`(首跑沒有,
+`buildEngineArgs` 讀到回填值)、stderr 只剩一行 `preference=cpu,略過
+探測`(首跑有三行 DML/CPU 探測輸出)、耗時**約 6 秒**(首跑 24 秒省下
+的 ~18 秒即探測成本)。二跑不會再印「已把 backend=cpu 回填…」——已有
+值不重寫。`curl.exe` 仍回 200,`netstat`/`taskkill` 停止方式同上。
+
+**防火牆彈窗:無**——服務只綁 loopback(`127.0.0.1`),Windows Defender
+防火牆對純 loopback listener 不彈「允許存取」對話框,curl 立即拿到
+200,沒有任何被攔截的跡象(若未來服務改綁 `0.0.0.0` 才需要預期彈窗)。
+
+**Task 6 Windows 演練確認(正常路徑,非錯誤)**：首跑「已把
+backend=cpu 回填進 machine-profile」如實出現、二跑帶 `--backend cpu`
+且略過探測,兩跑 `curl.exe` 均回 200,`netstat` 兩次皆只有
+`127.0.0.1:43117` 一行 LISTENING,`taskkill /F /T` 兩次皆成功釋放
+port。沒有踩到下表任何一列常見錯誤(下表原本只列 mac/通用症狀,
+Windows 特有的「找不到怎麼停止服務」已在上方單獨說明)。完整逐字稿見
+`.superpowers/sdd/task-6-rehearsal-log.md`「階段二 Step 5/5'」。
 
 **錄音前**：按下「開始錄音」後,瀏覽器會先跳出麥克風授權提示才會真的
 開始收音。如果按下去畫面看起來沒有反應(按鈕變成 disabled、但沒有任何

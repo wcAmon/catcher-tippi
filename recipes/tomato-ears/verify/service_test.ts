@@ -10,11 +10,14 @@
  * permission 差異」章節)。
  */
 import { assert, assertEquals } from "jsr:@std/assert@^1.0.19";
+import { fromFileUrl } from "jsr:@std/path@^1.0.9/from-file-url";
 import { startRealService } from "./real_service.ts";
 import { chunkPcm16, readWavPcm16 } from "./wav.ts";
 
 const APP_DIR = Deno.cwd();
-const FIXTURE_PATH = new URL("./fixtures/hello-streaming.wav", import.meta.url).pathname;
+// why fromFileUrl:同 protocol_test.ts——裸 `.pathname` 在 Windows 會產生
+// 非法原生路徑,Task 6 Windows 演練實測發現(見 reference/setup.ts 註解)。
+const FIXTURE_PATH = fromFileUrl(new URL("./fixtures/hello-streaming.wav", import.meta.url));
 
 function connectWs(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {

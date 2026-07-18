@@ -17,6 +17,7 @@
  * `../_machine`)。
  */
 import { assert } from "jsr:@std/assert@^1.0.19";
+import { fromFileUrl } from "jsr:@std/path@^1.0.9/from-file-url";
 import {
   buildEngineArgs,
   platformFromProfile,
@@ -29,7 +30,10 @@ import { normalizedLevenshtein, normalizeForAsr } from "./asr_metric.ts";
 import { chunkPcm16, readWavPcm16 } from "./wav.ts";
 
 const APP_DIR = Deno.cwd();
-const FIXTURE_PATH = new URL("./fixtures/hello-streaming.wav", import.meta.url).pathname;
+// why fromFileUrl(見 reference/setup.ts 的 MANIFEST_PATH 註解):裸
+// `new URL(...).pathname` 在 Windows 會產生 `/C:/...` 這種非法原生路徑，
+// 導致 Deno.stat/readFile 以 os error 3 失敗——Task 6 Windows 演練實測發現。
+const FIXTURE_PATH = fromFileUrl(new URL("./fixtures/hello-streaming.wav", import.meta.url));
 const EXPECTED_TEXT = "Hello, this is a streaming speech recognition test";
 const MAX_NORMALIZED_DISTANCE = 0.25;
 

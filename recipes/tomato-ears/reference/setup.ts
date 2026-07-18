@@ -39,6 +39,7 @@ import {
   resolveMachineProfilePath,
 } from "./main.ts";
 import { ensureDependencies, type Manifest } from "./downloader.ts";
+import { fromFileUrl } from "jsr:@std/path@^1.0.9/from-file-url";
 
 /**
  * `manifest.json` 的路徑:錨定在本檔(`reference/setup.ts`)所在位置的
@@ -47,8 +48,22 @@ import { ensureDependencies, type Manifest } from "./downloader.ts";
  * cwd 相對字串來算這個路徑,是防禦性寫法:`deno task` 定義上一定以
  * app 目錄為 cwd(main.ts 檔頭的 cwd 模型說明),兩種算法在正常使用下
  * 解析到同一個絕對路徑,但錨定在模組自己的位置不會受呼叫方式影響。
+ *
+ * **必須用 `fromFileUrl` 而非裸 `new URL(...).pathname`**(Task 6 Windows
+ * 演練實測發現的阻斷性 bug,見
+ * `.superpowers/sdd/task-6-rehearsal-log.md`):WHATWG URL 的 `.pathname`
+ * 在 Windows 磁碟機路徑上會保留 URL 規範要求的前導斜線(例如
+ * `file:///C:/Users/...` → pathname `/C:/Users/...`),這個字串**不是**
+ * 合法的 Windows 原生路徑——Rust/Deno 的檔案系統層會把開頭的 `/` 解讀成
+ * 「相對於目前磁碟機根目錄」,於是變成尋找一個字面上名為 `C:` 的資料夾
+ * (NTFS 不允許檔名含冒號),結果是 `NotFound: 系統找不到指定的路徑`
+ * (os error 3)——無論宣告多寬的 `--allow-read` 都无法修正,因為問題發生
+ * 在權限檢查通過之後的 OS 層級路徑解析。`fromFileUrl`(`jsr:@std/path`,
+ * 本檔已透過 `downloader.ts` 間接依賴,`deno.lock` 已釘住整個套件版本,
+ * 加這個子路徑匯入不需要更新 lockfile)會依平台正確轉換,mac/Linux 與
+ * Windows 皆可正確處理,不需要额外的平台判斷分支。
  */
-const MANIFEST_PATH = new URL("../manifest.json", import.meta.url).pathname;
+const MANIFEST_PATH = fromFileUrl(new URL("../manifest.json", import.meta.url));
 
 async function readManifest(): Promise<Manifest> {
   const text = await Deno.readTextFile(MANIFEST_PATH);
