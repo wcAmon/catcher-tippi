@@ -1,4 +1,5 @@
 //! 真模型整合測試。需要 Metal 與已下載的 artifact,預設 #[ignore]。
+//! 比對前 expected 與模型輸出都會先去除空白與標點(ASR 評測慣例)再算編輯距離。
 //! 執行:
 //!   CATCHER_ASR_MODEL_DIR=~/path/to/catcher-asr-mlx-int8 \
 //!   CATCHER_ASR_FIXTURE_WAV=~/path/to/fixture-zh.wav \
@@ -61,10 +62,13 @@ fn transcribes_fixture_wav_end_to_end() {
 
     // 正規化編輯距離:0.0 = 完全相同。比 presence-based 覆蓋率嚴格——
     // 亂碼即使字元集重疊也會因插入/替換代價而距離飆高。
-    let distance = normalized_levenshtein(&expected, &final_text);
+    // 比對前先做 ASR 評測慣例的文字正規化(去空白與標點)。
+    let expected_norm = normalize_for_asr(&expected);
+    let got_norm = normalize_for_asr(&final_text);
+    let distance = normalized_levenshtein(&expected_norm, &got_norm);
     assert!(
         distance <= 0.25,
-        "normalized edit distance {distance:.3} > 0.25\nexpected: {expected}\ngot: {final_text}"
+        "normalized edit distance {distance:.3} > 0.25\nexpected (normalized): {expected_norm}\ngot (normalized): {got_norm}"
     );
     drop(child.stdin.take());
     child.wait().unwrap();
@@ -78,6 +82,19 @@ fn read_wav_pcm16(path: &str) -> Vec<u8> {
         .position(|window| window == b"data")
         .expect("wav data chunk");
     bytes[data_pos + 8..].to_vec()
+}
+
+/// ASR 評測慣例:比對前去除空白與標點(格式差異不是辨識錯誤)。
+/// 數字格式差異(如「三百六十五」vs「365」)仍計為錯誤,屬可接受誤差內。
+fn normalize_for_asr(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_whitespace() && !is_punct(c))
+        .collect()
+}
+
+fn is_punct(c: &char) -> bool {
+    c.is_ascii_punctuation()
+        || matches!(*c, '，' | '。' | '、' | '；' | '：' | '?' | '!' | '「' | '」' | '『' | '』' | '（' | '）' | '《' | '》' | '…' | '—' | '·' | '？' | '！')
 }
 
 /// 字元級 Levenshtein 距離除以較長字串的字元數(0.0 = 相同,1.0 = 完全不同)。
