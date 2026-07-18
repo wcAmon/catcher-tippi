@@ -106,7 +106,7 @@ public class RealModelTests(ITestOutputHelper output)
             }
             else if (kind == "error")
             {
-                Assert.True(false, $"host emitted error: {evt.GetProperty("message").GetString()}");
+                Assert.Fail($"host emitted error: {evt.GetProperty("message").GetString()}");
             }
         }
         Assert.True(sawFinal, "host 在 final 之前結束(stdout EOF)");
