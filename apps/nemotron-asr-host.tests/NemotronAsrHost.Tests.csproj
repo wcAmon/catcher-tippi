@@ -10,6 +10,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- xunit 2.x 沒有原生執行期動態 skip;SkippableFact 補上 Skip.If,
+         讓 RealModelTests 在缺 NEMOTRON_ASR_MODEL_DIR 時回報「略過」而非假綠燈。 -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\nemotron-asr-host\NemotronAsrHost.csproj" />

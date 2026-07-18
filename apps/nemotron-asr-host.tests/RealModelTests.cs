@@ -1,11 +1,12 @@
 // 真模型端到端測試。需要 NEMOTRON_ASR_MODEL_DIR 指向已下載並雜湊驗證的模型目錄
 // (scripts/fetch-nemotron-onnx-model.ps1 產出,預設 C:\Users\i5491\catcher-tippi-models\nemotron-onnx-int4)。
 //
-// GATING 選擇說明:xUnit 2.x 的 [Fact(Skip=...)] 只能編譯期靜態決定,無法在執行期
-// 讀 Environment.GetEnvironmentVariable 動態略過(沒有等價 Skip.If)。改用「缺環境變數時
-// 提早 return 並印診斷訊息」——測試回報「通過」而非「略過」,但診斷訊息會清楚說明原因,
-// 且測試名稱刻意包含 RealModel,方便 `dotnet test --filter RealModel` 精準鎖定並搭配
-// 環境變數執行,不會誤判成「什麼都沒測就過了」的靜默通過。
+// GATING 選擇說明:xUnit 2.x 的 [Fact(Skip=...)] 只能編譯期靜態決定,沒有原生執行期
+// 動態 skip。採用 Xunit.SkippableFact 套件的 [SkippableFact] + Skip.If:缺
+// NEMOTRON_ASR_MODEL_DIR 時測試回報「略過」(SKIPPED),而非早期版本「提早 return 假綠燈」
+// ——單純 `dotnet test`(未濾掉 RealModel、未設環境變數)的總結行會顯示「略過: 1」,
+// 不會讓人誤以為真模型斷言跑過了。fast-suite 主要工作流仍是
+// `dotnet test --filter FullyQualifiedName!~RealModel`(見 task-4-report.md)。
 //
 // 對應 crates/catcher-asr-host/tests/real_model.rs 的 transcribes_fixture_wav_end_to_end:
 // normalize_for_asr / normalized_levenshtein 兩個 helper 逐語義移植(char 級,先去標點/空白,
@@ -23,17 +24,14 @@ public class RealModelTests(ITestOutputHelper output)
     private const string ExpectedText = "Hello, this is a streaming speech recognition test";
     private const double MaxNormalizedDistance = 0.25;
 
-    [Fact]
+    [SkippableFact]
     public void RealModel_TranscribesHelloStreamingWav()
     {
         string? modelDir = Environment.GetEnvironmentVariable("NEMOTRON_ASR_MODEL_DIR");
-        if (string.IsNullOrEmpty(modelDir))
-        {
-            output.WriteLine(
-                "SKIPPED(診斷,非真略過):NEMOTRON_ASR_MODEL_DIR 未設定。" +
-                "設定後執行:set NEMOTRON_ASR_MODEL_DIR=<dir> & dotnet test --filter RealModel -c Release");
-            return;
-        }
+        Skip.If(
+            string.IsNullOrEmpty(modelDir),
+            "NEMOTRON_ASR_MODEL_DIR 未設定。設定後執行:" +
+            "set NEMOTRON_ASR_MODEL_DIR=<dir>&dotnet test --filter RealModel -c Release");
 
         string exePath = LocateHostExecutable();
         string wavPath = LocateFixture("hello-streaming.wav");
@@ -42,7 +40,8 @@ public class RealModelTests(ITestOutputHelper output)
         var psi = new ProcessStartInfo
         {
             FileName = exePath,
-            ArgumentList = { "--model", modelDir, "--language", "en-US" },
+            // modelDir 已由上方 Skip.If 保證非空;編譯器看不穿 Skip.If 的 throw 語義,需 null-forgiving。
+            ArgumentList = { "--model", modelDir!, "--language", "en-US" },
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -136,6 +135,8 @@ public class RealModelTests(ITestOutputHelper output)
         // task-3-report.md 遺留項(b):真引擎 Process() 每次回傳累積全文,HostSession 的
         // _lastEmitted 比對正是為此存在(只在文字真的變化時才發 partial)。這裡驗證觀察到
         // 的 partial 序列符合這個收斂語義:無相鄰重複、單調不縮短。
+        // 先擋空集合:0 個 partial 會讓下方迴圈空轉,gating 行為等於沒驗證(vacuous pass)。
+        Assert.True(partials.Count > 0, "real-model run produced no partial events — gating behavior unverified");
         for (int i = 1; i < partials.Count; i++)
         {
             Assert.NotEqual(partials[i - 1], partials[i]);
