@@ -70,7 +70,18 @@ public class RealModelTests(ITestOutputHelper output)
 
         string readyLine = reader.ReadLine() ?? throw new EndOfStreamException("host produced no stdout");
         JsonElement ready = JsonDocument.Parse(readyLine.Trim()).RootElement;
-        Assert.Equal("ready", ready.GetProperty("event").GetString());
+        string readyKind = ready.GetProperty("event").GetString()!;
+        if (readyKind != "ready")
+        {
+            process.WaitForExit(5000);
+            process.CancelErrorRead();
+            foreach (string stderrLine in stderrLines)
+            {
+                output.WriteLine($"[host stderr] {stderrLine}");
+            }
+            output.WriteLine($"[host stdout first line] {readyLine}");
+        }
+        Assert.Equal("ready", readyKind);
         string backend = ready.GetProperty("backend").GetString()!;
         output.WriteLine($"ready backend={backend}");
 
