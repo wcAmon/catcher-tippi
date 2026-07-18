@@ -28,6 +28,9 @@ public static class Protocol
             if (root.ValueKind != JsonValueKind.Object ||
                 !root.TryGetProperty("cmd", out var cmdProp))
             { error = "無法解析指令:缺少 cmd"; return false; }
+            // cmd 非字串(如 {"cmd":123})不得讓 GetString() 丟例外殺掉行程:壞行 → error 續讀。
+            if (cmdProp.ValueKind != JsonValueKind.String)
+            { error = "無法解析指令:cmd 必須是字串"; return false; }
             string? cmd = cmdProp.GetString();
             var known = cmd switch
             {
@@ -45,12 +48,15 @@ public static class Protocol
             switch (cmd)
             {
                 case "start":
+                    // TryGetInt32 而非 GetInt32:小數(16000.5)或超出 int 範圍的數字
+                    // 不得丟 Format/OverflowException 殺掉行程,一律視為解析失敗 → error。
                     if (!root.TryGetProperty("lang", out var lang) ||
                         !root.TryGetProperty("sample_rate", out var rate) ||
                         lang.ValueKind != JsonValueKind.String ||
-                        rate.ValueKind != JsonValueKind.Number)
+                        rate.ValueKind != JsonValueKind.Number ||
+                        !rate.TryGetInt32(out var sampleRate))
                     { error = "無法解析指令:start 欄位不完整"; return false; }
-                    command = new Command.Start(lang.GetString()!, rate.GetInt32());
+                    command = new Command.Start(lang.GetString()!, sampleRate);
                     return true;
                 case "audio":
                     if (!root.TryGetProperty("pcm16_b64", out var pcm) ||

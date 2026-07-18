@@ -29,7 +29,7 @@ public sealed class HostSession(IAsrEngine engine)
                 _active = true;
                 _lastEmitted = "";
                 return [];
-            case Command.Audio audio when !_active:
+            case Command.Audio when !_active:
                 return [Protocol.EmitError("尚未 start")];
             case Command.Audio audio:
             {

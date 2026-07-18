@@ -17,13 +17,15 @@ public class StdioBlackBoxTests
         var testAssemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
         // testAssemblyDir 形如 .../apps/nemotron-asr-host.tests/bin/Release/net8.0
         // 往上 4 層回到 apps/,再進 nemotron-asr-host/bin/Release/net8.0。
+        // 注意:路徑硬編 Release —— 本測試 harness 依 scripts/bootstrap-windows-host.md
+        // 固定以 `dotnet test ... -c Release` 執行;Debug 組態不受支援。
         var appsDir = Path.GetFullPath(Path.Combine(testAssemblyDir, "..", "..", "..", ".."));
         var exeName = OperatingSystem.IsWindows() ? "nemotron-asr-host.exe" : "nemotron-asr-host";
         var exePath = Path.Combine(appsDir, "nemotron-asr-host", "bin", "Release", "net8.0", exeName);
         if (!File.Exists(exePath))
         {
             throw new FileNotFoundException(
-                $"host executable not found at {exePath}; expected ProjectReference build order to produce it.",
+                $"host executable not found at {exePath}; this harness requires the Release configuration — build with -c Release first (dotnet test ... -c Release).",
                 exePath);
         }
         return exePath;
@@ -96,6 +98,10 @@ public class StdioBlackBoxTests
 
         var stdin = process.StandardInput;
         stdin.WriteLine("garbage");
+        Assert.Equal("error", ReadLine(process).GetProperty("event").GetString());
+
+        // cmd 非字串:合法 JSON 但型別錯 → error 且行程不得因未捕捉例外死亡
+        stdin.WriteLine("{\"cmd\":123}");
         Assert.Equal("error", ReadLine(process).GetProperty("event").GetString());
 
         // 行程還活著:正常會話仍可走完

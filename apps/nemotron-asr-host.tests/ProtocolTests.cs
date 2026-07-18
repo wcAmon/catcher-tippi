@@ -35,6 +35,21 @@ public class ProtocolTests
         Assert.False(Protocol.TryParse("not json", out _, out _));
     }
 
+    // cmd 非字串:GetString() 不得丟未捕捉例外殺掉行程,必須回 TryParse false。
+    [Fact]
+    public void RejectsNonStringCmd()
+    {
+        Assert.False(Protocol.TryParse("{\"cmd\":123}", out _, out _));
+    }
+
+    // sample_rate 非整數(16000.5):GetInt32() 不得丟 FormatException,必須回 TryParse false。
+    [Fact]
+    public void RejectsNonIntegerSampleRate()
+    {
+        Assert.False(Protocol.TryParse(
+            "{\"cmd\":\"start\",\"lang\":\"auto\",\"sample_rate\":16000.5}", out _, out _));
+    }
+
     // 對應協定文件「指令物件拒絕未知欄位」;mac 用 serde deny_unknown_fields 天生涵蓋,
     // C# 手動檢查故獨立成一條測試。
     [Fact]

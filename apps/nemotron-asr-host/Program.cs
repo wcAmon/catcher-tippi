@@ -2,7 +2,10 @@
 // 協定見 docs/protocol/asr-host-v1.md;本檔只做 stdio 轉發。
 using NemotronAsrHost;
 
-Console.OutputEncoding = System.Text.Encoding.UTF8; // stdout 必須是 raw UTF-8 JSON(mac host 對齊)
+// stdout 必須是 raw UTF-8 JSON(mac host 對齊)。encoderShouldEmitUTF8Identifier: false:
+// Encoding.UTF8 靜態實例帶 BOM,重導向 stdout 時可能把 EF BB BF 寫在 ready 行之前,
+// 非 .NET 的 JSON-lines 消費端(Rust/Deno)會在第一行就解析失敗。
+Console.OutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
 string? modelDir = null;
 string language = "auto";
