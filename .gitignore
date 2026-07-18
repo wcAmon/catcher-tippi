@@ -6,6 +6,10 @@
 *.safetensors
 *.nemo
 !tests/fixtures/*.wav
+# tomato-ears 配方的驗收 fixture(從 tests/fixtures/ 複製，供 verify/protocol_test.ts
+# 與 verify/service_test.ts 使用)——recipes/ 是配方的獨立發佈單位，必須連同 fixture
+# 一起進版控，不能仰賴 tests/fixtures/ 那份（配方打包時不含本 repo 其他目錄）。
+!recipes/tomato-ears/verify/fixtures/*.wav
 
 /.model-source/
 /.model-artifact/

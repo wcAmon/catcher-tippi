@@ -53,10 +53,12 @@ import { EngineClient } from "./engine.ts";
 import { startServer } from "./server.ts";
 
 /** manifest.json 的 `ports.http`(見 recipes/tomato-ears/manifest.json)。
- * 兩處必須手動保持同步——這是 glue 腳本的固有侷限,Task 4 的
- * `permissions_test.ts` 家族之後可以加一項「manifest.ports.http ===
- * 這個常數」的一致性檢查,本 task 範圍不含那個測試。 */
-const DEFAULT_PORT = 43117;
+ * 兩處必須手動保持同步——這是 glue 腳本的固有侷限;`export` 這個常數是
+ * 為了讓 `verify/permissions_test.ts` 能機械化釘住「manifest.json 的
+ * `ports.http`」「這個常數」「`start:mac`/`start:win` 宣告的
+ * `--allow-net=127.0.0.1:<port>`」三處port 數字永遠一致,防止未來任一處
+ * 單獨改動而漂移(Task 2 遺留的一致性檢查缺口,已在 Task 4 補上)。 */
+export const DEFAULT_PORT = 43117;
 
 /**
  * app 安裝目錄:預設 = `Deno.cwd()`(cwd 模型,見檔頭——`deno task` 的

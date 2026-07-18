@@ -4,8 +4,8 @@
     "setup:win": "deno run --allow-net --allow-read=.,../_machine --allow-write=.,../_machine --allow-run=tar --allow-env=TMUH_APPS_DIR reference/setup.ts",
     "start:mac": "deno run --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host,open --allow-env=TMUH_APPS_DIR,TMUH_NO_BROWSER reference/main.ts",
     "start:win": "deno run --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host.exe,explorer --allow-env=TMUH_APPS_DIR,TMUH_NO_BROWSER reference/main.ts",
-    "verify:mac": "deno test --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host --allow-env=TMUH_APPS_DIR verify/",
-    "verify:win": "deno test --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host.exe --allow-env=TMUH_APPS_DIR verify/"
+    "verify:mac": "deno test --allow-net --allow-sys=networkInterfaces --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host --allow-env=TMUH_APPS_DIR verify/",
+    "verify:win": "deno test --allow-net --allow-sys=networkInterfaces --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host.exe --allow-env=TMUH_APPS_DIR verify/"
   },
   "fmt": {
     "useTabs": false,
