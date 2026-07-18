@@ -19,14 +19,27 @@ public static class BackendProber
     /// preference=Cpu:略過探測,直接載入 CPU。
     /// preference=DirectML:只測 DML,失敗回退 CPU。
     /// preference=Auto:兩者都測,交給 InferenceBackendPolicy.Select 決定。
-    public static (NemotronEngine Engine, InferenceBackend Backend) Probe(
+    ///
+    /// 回傳值只有 engine,不再額外回傳「選定的」InferenceBackend enum——LoadEngine 內部
+    /// 可能在建構期靜默把 DML 回退成 CPU,若這裡把探測階段算出的 selected 值原封不動回傳
+    /// 給呼叫端,ready 事件的 backend 欄位就可能報 "dml" 但實際跑的是 CPU 引擎
+    /// (曾經的 bug)。呼叫端應一律讀 engine.Backend(NemotronEngine 建構成功時才會設值,
+    /// 因此該屬性保證等於實際套用的後端;NemotronEngineAdapter 也改成直接讀這個屬性,
+    /// 見 Engines.cs),讓「回報值」與「實際引擎」不一致的狀態在型別層面不可能發生。
+    ///
+    /// 成本註記:preference=Auto 時,一次 Probe 呼叫在行程啟動期間最多建構 NemotronEngine
+    /// 三次(探測 DML 一次、探測 CPU 一次、LoadEngine 依 Select 結果最終載入一次)——每次
+    /// 建構都要吃一次模型檔案 I/O 與 onnxruntime-genai 初始化成本。呼叫這支 host 的
+    /// recipe/client 若在乎啟動延遲,應該把探測結果(ready 事件的 backend 欄位)持久化,
+    /// 之後重啟改用 --backend dml 或 --backend cpu 明確指定,跳過重複探測。
+    public static NemotronEngine Probe(
         string modelDirectory,
         InferenceBackendPreference preference)
     {
         if (preference == InferenceBackendPreference.Cpu)
         {
             Log("preference=cpu,略過探測。");
-            return (LoadEngine(modelDirectory, InferenceBackend.Cpu), InferenceBackend.Cpu);
+            return LoadEngine(modelDirectory, InferenceBackend.Cpu);
         }
 
         BackendProbeResult directMl = RunProbe(modelDirectory, InferenceBackend.DirectML);
@@ -39,7 +52,7 @@ public static class BackendProber
             {
                 Log("preference=dml 但 GPU 探測失敗,回退 CPU。");
             }
-            return (LoadEngine(modelDirectory, backend), backend);
+            return LoadEngine(modelDirectory, backend);
         }
 
         // preference=auto:CPU 必須也測一次,InferenceBackendPolicy.Select 兩者都要。
@@ -47,9 +60,9 @@ public static class BackendProber
         LogProbeResult("cpu", cpu);
 
         InferenceBackend selected = InferenceBackendPolicy.Select(preference, directMl, cpu);
-        Log($"選定後端:{(selected == InferenceBackend.DirectML ? "dml" : "cpu")}" +
+        Log($"選定後端:{BackendWireName.For(selected)}" +
             $"(閾值 AutoGpuThreshold={InferenceBackendPolicy.AutoGpuThreshold})");
-        return (LoadEngine(modelDirectory, selected), selected);
+        return LoadEngine(modelDirectory, selected);
     }
 
     private static NemotronEngine LoadEngine(string modelDirectory, InferenceBackend backend)

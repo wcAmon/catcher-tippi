@@ -16,10 +16,18 @@ string? modelDir = null;
 string language = "auto";
 string backendPref = "auto";
 bool fakeEngine = false;
+const string Usage = "usage: nemotron-asr-host [--model <dir>] [--language <lang>] [--backend auto|dml|cpu] [--fake-engine]";
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
+        // 需要值的旗標若排在 args 最後一個位置(沒有後續元素可取),舊寫法 args[++i]
+        // 會丟未捕捉的 IndexOutOfRangeException,行程以非預期的方式崩潰退出(而非乾淨的
+        // usage + exit 2)。先擋邊界,鏡射 clap 對「缺值旗標」的處理慣例。
+        case "--model" or "--language" or "--backend" when i + 1 >= args.Length:
+            Console.Error.WriteLine($"error: 選項 {args[i]} 需要一個值,但已無更多引數");
+            Console.Error.WriteLine(Usage);
+            return 2;
         case "--model": modelDir = args[++i]; break;
         case "--language": language = args[++i]; break;
         case "--backend": backendPref = args[++i]; break;
@@ -56,8 +64,8 @@ else
 
     try
     {
-        (NemotronEngine nemotronEngine, InferenceBackend backend) = BackendProber.Probe(modelDir, preference);
-        engine = new NemotronEngineAdapter(nemotronEngine, language, backend);
+        NemotronEngine nemotronEngine = BackendProber.Probe(modelDir, preference);
+        engine = new NemotronEngineAdapter(nemotronEngine, language);
     }
     catch (Exception e)
     {

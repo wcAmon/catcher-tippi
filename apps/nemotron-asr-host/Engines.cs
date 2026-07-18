@@ -46,16 +46,27 @@ public sealed class FakeEngine : IAsrEngine
     public string Finish() => _text;
 }
 
+/// InferenceBackend enum → 協定線上字串("dml"/"cpu")的映射,獨立成 static method
+/// 是為了讓 fast test 能不碰真引擎、不碰硬體地驗證這個映射本身(見
+/// EnginesTests.BackendWireNameMapsDirectMlToDml / BackendWireNameMapsCpuToCpu)。
+public static class BackendWireName
+{
+    public static string For(Tippi.Windows.Services.InferenceBackend backend) =>
+        backend == Tippi.Windows.Services.InferenceBackend.DirectML ? "dml" : "cpu";
+}
+
 /// 真引擎:包裝既有 NemotronEngine(onnxruntime-genai)。
 /// Begin = BeginSession(language, useVad:false, traditionalChinese:true)——
 /// 繁體輸出與 mac host 的 opencc s2twp 對齊。
+/// Backend 刻意不接受建構子參數,而是每次讀 inner.Backend 現算——inner 的 Backend
+/// 屬性只在建構成功時被設成「實際套用的後端」(見 NemotronEngine.cs),因此這裡不可能
+/// 存在「回報值」與「實際引擎」不一致的狀態(BackendProber.LoadEngine 的 DML→CPU
+/// 靜默回退不再能繞過這個屬性——回退後建構出的是另一個 Backend=Cpu 的 NemotronEngine)。
 public sealed class NemotronEngineAdapter(
     Tippi.Windows.Services.NemotronEngine inner,
-    string language,
-    Tippi.Windows.Services.InferenceBackend backend) : IAsrEngine
+    string language) : IAsrEngine
 {
-    public string Backend { get; } =
-        backend == Tippi.Windows.Services.InferenceBackend.DirectML ? "dml" : "cpu";
+    public string Backend => BackendWireName.For(inner.Backend);
 
     public void Begin() => inner.BeginSession(language, useVad: false, traditionalChinese: true);
 
