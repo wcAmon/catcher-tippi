@@ -38,9 +38,14 @@ fn main() -> ExitCode {
     let engine: Box<dyn AsrEngine> = if arguments.fake_engine {
         Box::new(FakeEngine::new())
     } else {
-        // Task 5 接上 MlxEngine;在那之前真引擎路徑回報未實作。
-        emit_line(&Event::Error { message: "MLX engine 尚未接上,請用 --fake-engine".into() });
-        return ExitCode::FAILURE;
+        let model = arguments.model.as_deref().expect("clap enforces --model");
+        match engine::MlxEngine::load(model, &arguments.language, arguments.lookahead) {
+            Ok(engine) => Box::new(engine),
+            Err(message) => {
+                emit_line(&Event::Error { message });
+                return ExitCode::FAILURE;
+            }
+        }
     };
 
     let mut session = Session::new(engine);

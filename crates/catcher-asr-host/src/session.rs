@@ -98,7 +98,6 @@ mod tests {
     use super::*;
     use crate::engine::FakeEngine;
     use crate::protocol::{Command, Event};
-    use base64::Engine as _;
 
     fn b64_pcm(samples: usize) -> String {
         base64::engine::general_purpose::STANDARD.encode(vec![0u8; samples * 2])

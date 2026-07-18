@@ -1,6 +1,12 @@
 //! 推論引擎抽象。Session 只認識這個 trait,
 //! 讓狀態機能在沒有 Metal 與模型檔的環境(CI、驗收測試)用 FakeEngine 驗證。
 
+use std::path::Path;
+
+use nemotron_mlx::{
+    model::StreamingTranscriber, opencc, tokenizer::Tokenizer, weights::Artifact,
+};
+
 pub trait AsrEngine {
     /// 餵入 16 kHz mono f32 samples,回傳新產生的 token ids。
     fn push(&mut self, samples: &[f32]) -> Result<Vec<u32>, String>;
@@ -47,5 +53,45 @@ impl AsrEngine for FakeEngine {
 
     fn backend(&self) -> &'static str {
         "fake"
+    }
+}
+
+/// 真引擎:與 nemotron-cli 的 Transcribe 子命令同一條推論路徑
+/// (Artifact → StreamingTranscriber → Tokenizer → opencc 繁化)。
+pub struct MlxEngine {
+    transcriber: StreamingTranscriber,
+    tokenizer: Tokenizer,
+}
+
+impl MlxEngine {
+    pub fn load(model: &Path, language: &str, lookahead: usize) -> Result<Self, String> {
+        let artifact = Artifact::load(model).map_err(|error| format!("載入模型失敗:{error}"))?;
+        let transcriber = StreamingTranscriber::new(&artifact, language, lookahead)
+            .map_err(|error| format!("初始化 transcriber 失敗:{error}"))?;
+        // 0 與 13_087 是 Nemotron tokenizer 的 id 邊界,與 nemotron-cli 一致。
+        let tokenizer = Tokenizer::from_json(model.join("tokenizer.json"), 0, 13_087)
+            .map_err(|error| format!("載入 tokenizer 失敗:{error}"))?;
+        Ok(Self { transcriber, tokenizer })
+    }
+}
+
+impl AsrEngine for MlxEngine {
+    fn push(&mut self, samples: &[f32]) -> Result<Vec<u32>, String> {
+        let tokens = self.transcriber.push_samples(samples).map_err(|e| e.to_string())?;
+        Ok(tokens.iter().map(|token| token.id).collect())
+    }
+
+    fn finish(&mut self) -> Result<Vec<u32>, String> {
+        let tokens = self.transcriber.finish().map_err(|e| e.to_string())?;
+        Ok(tokens.iter().map(|token| token.id).collect())
+    }
+
+    fn decode(&self, ids: &[u32]) -> Result<String, String> {
+        let text = self.tokenizer.decode(ids, true).map_err(|e| e.to_string())?;
+        Ok(opencc::to_traditional(&text))
+    }
+
+    fn backend(&self) -> &'static str {
+        "mlx"
     }
 }
