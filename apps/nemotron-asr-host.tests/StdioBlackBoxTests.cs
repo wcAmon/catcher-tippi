@@ -42,8 +42,11 @@ public class StdioBlackBoxTests
             // codepage(遠端機為 cp950 Big5)解碼子行程 stdout,把 host 寫出的原始 UTF-8
             // 中文位元組誤判成雙位元組 Big5 字元(觀察到 "字0" 被誤讀成 "摮?")。
             // 顯式釘住 UTF-8,與子行程 Program.cs 的 Console.OutputEncoding 對齊。
+            // 注意:StandardInputEncoding 刻意不設 —— System.Text.Encoding.UTF8 帶 BOM
+            // preamble,設了會在 stdin 第一次寫入時多寫 3 個 BOM 位元組,把 start 那行
+            // 撞壞(已實測到:第一個 partial 變成 error)。stdin 內容全是 ASCII/base64,
+            // 用預設編碼即可正確傳輸,不需要顯式 UTF-8。
             StandardOutputEncoding = System.Text.Encoding.UTF8,
-            StandardInputEncoding = System.Text.Encoding.UTF8,
         };
         return Process.Start(psi) ?? throw new InvalidOperationException("failed to spawn nemotron-asr-host");
     }
