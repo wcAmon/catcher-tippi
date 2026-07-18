@@ -8,6 +8,9 @@
 **在你開始之前:如果你不確定某個步驟該不該做,先讀完整份 PLAN.md 再動手**
 ——尤其是 Step 1 的目錄結構,寫錯會讓後面所有步驟都失敗在意料之外的地方。
 
+文件與註解中引用的 `.superpowers/`、`docs/`、`crates/`、`scripts/` 路徑屬於源
+repo 的出處紀錄,不在本配方包內,無需尋找。
+
 > **已修復**:`asr-host-v0.1.0` 有一個上游打包缺陷——執行時會印出
 > `MLX error: Failed to load the default metallib. library not found`
 > 然後退出(release 只含 binary,沒有隨附 colocated `mlx.metallib`)。
@@ -149,7 +152,7 @@ SECURITY.md 第 1.1 節):`deno task` 定義上以 `deno.json` 所在目錄為工
 deno task setup:mac      # Windows 用 setup:win
 ```
 
-這一步會下載 engine host(mac ≈4.2 MB、Windows 較大,見 `manifest.json`
+這一步會下載 engine host(mac ≈29 MB、Windows 較大,見 `manifest.json`
 的 `byteCount`)與模型檔案(mac ≈630 MB、Windows 較大),逐檔驗證
 SHA-256,原子安裝到 `<APP>/download/`(暫存,保留供重跑時免重下)、
 `<APP>/bin/`(engine host,解壓後 pin 一份到 `bin/engine-host[.exe]`)、

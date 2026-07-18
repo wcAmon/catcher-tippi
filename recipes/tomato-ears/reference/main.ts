@@ -100,7 +100,18 @@ export async function readMachineProfile(path: string): Promise<Record<string, u
     }
     throw err;
   }
-  const parsed: unknown = JSON.parse(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new Error(
+        `machine-profile 損壞,無法解析為 JSON:${path}\n` +
+          `請重跑 env-base 探測(recipes/env-base/RECIPE.md)重新產生這個檔案。`,
+      );
+    }
+    throw err;
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`machine-profile 內容不是合法的 JSON 物件:${path}`);
   }

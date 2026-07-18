@@ -136,9 +136,9 @@ Deno 的 `--allow-run` 只保證「只能執行清單內這一個路徑的程式
    與 `manifest.json` 宣告的完全相符——沒有中間人竄改過;
 2. 引擎子行程本身**沒有任何網路權限**(它是 Deno `--allow-run` spawn 出來
    的獨立作業系統行程,不受 Deno 沙箱管轄,但引擎本身的設計是純粹的
-   stdin/stdout 推論服務,不含任何網路程式碼——`docs/protocol/asr-host-v1.md`
-   全程只描述 stdin/stdout 的 JSON-lines 交換,沒有任何網路相關的指令或
-   事件)。
+   stdin/stdout 推論服務,不含任何網路程式碼——`PROTOCOL.md`(配方包內;
+   源 repo 路徑 `docs/protocol/asr-host-v1.md`)全程只描述 stdin/stdout 的
+   JSON-lines 交換,沒有任何網路相關的指令或事件)。
 
 ## 4. verify 與 start permission 差異(誠實揭露)
 

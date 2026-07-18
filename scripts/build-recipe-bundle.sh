@@ -57,6 +57,37 @@ else
   exit 1
 fi
 
+# 自我完整性檢查:配方包本身必須自我完整——使用者的 agent 只會複製
+# recipes/tomato-ears/ 到自己機器上的 app 目錄,repo 根目錄的
+# .superpowers/、crates/、apps/、scripts/ 等其他目錄不會被帶過去,任何
+# bundle 內文件/程式碼如果依賴這些路徑實際存在,對使用者來說就是死路徑。
+#
+# 這裡選擇「印出警告、不中斷建構」而非直接 FAIL:要精準區分「這一行是
+# 需要修掉的死連結」還是「刻意保留的出處紀錄(見 PLAN.md 引言的引用慣例
+# 說明)」需要逐行語意判讀——同一份文件裡兩種引用會混在一起,機械規則
+# (例如「這行有沒有某個關鍵字」)很容易誤殺合法的 provenance 說明,或者
+# 反過來放過真正的死連結。改成 WARNING 讓建構者人工複核全部命中行,比
+# 自動 FAIL/自動放行都更不容易出錯,同時仍然保證命中內容不會被靜默忽略。
+echo ""
+echo "Checking bundle self-containedness (source-repo-only path references)..."
+containedness_hits=$(grep -rnE 'docs/superpowers|\.superpowers|crates/|apps/|scripts/bootstrap' "${extract_dir}/${name}" || true)
+if [ -n "${containedness_hits}" ]; then
+  echo "⚠ WARNING: bundle contains references to source-repo-only paths:"
+  echo "${containedness_hits}" | while IFS= read -r hit; do
+    if echo "${hit}" | grep -q '源 repo\|_baseUrlNote\|_deviations'; then
+      echo "  [provenance note, OK] ${hit}"
+    else
+      echo "  [needs manual review]  ${hit}"
+    fi
+  done
+  echo "  -> lines marked [provenance note, OK] cite the source repo path for"
+  echo "     traceability (allowed, see PLAN.md intro); anything marked"
+  echo "     [needs manual review] should be checked by hand before shipping."
+  echo "     Build NOT failed automatically — see this script's comment for why."
+else
+  echo "✓ No source-repo-only path references found in bundle"
+fi
+
 # 清理
 rm -rf "${verify_dir}"
 

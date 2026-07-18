@@ -13,8 +13,9 @@
  */
 
 /** 錄音頁固定往 asr-host-v1 協定的目標取樣率送資料。協定本身只接受
- * `sample_rate: 16000`（見 `docs/protocol/asr-host-v1.md` 的 `start` 指令
- * 格式），寫死在這裡比讓呼叫端每次都要手動傳入更不容易傳錯。 */
+ * `sample_rate: 16000`（見 `PROTOCOL.md`，配方包內；源 repo 路徑
+ * `docs/protocol/asr-host-v1.md` 的 `start` 指令格式），寫死在這裡比讓
+ * 呼叫端每次都要手動傳入更不容易傳錯。 */
 export const TARGET_SAMPLE_RATE = 16000;
 
 /**

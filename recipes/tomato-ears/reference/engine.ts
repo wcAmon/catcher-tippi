@@ -1,5 +1,6 @@
 /**
- * `EngineClient`:asr-host-v1 協定(見 `docs/protocol/asr-host-v1.md`,凍結)的
+ * `EngineClient`:asr-host-v1 協定(見 `PROTOCOL.md`,配方包內;源 repo 路徑
+ * `docs/protocol/asr-host-v1.md`,凍結)的
  * Deno 端子行程包裝。管理 engine host(`catcher-asr-host` / `nemotron-asr-host`)
  * 的生命週期,把 stdin/stdout JSON-lines 轉成 TypeScript 的方法呼叫與 callback。
  *

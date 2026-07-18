@@ -34,7 +34,8 @@ export async function readWavPcm16(path: string): Promise<Uint8Array> {
 
 /**
  * 把 PCM16 位元組切成固定大小的 chunk(協定建議每 chunk 1600 samples ≈
- * 100ms,見 `docs/protocol/asr-host-v1.md`)。最後一個 chunk 可能短於
+ * 100ms,見 `PROTOCOL.md`,配方包內;源 repo 路徑 `docs/protocol/asr-host-v1.md`)。
+ * 最後一個 chunk 可能短於
  * `chunkSamples`(協定文件:chunk 長度只是建議,不是強制,host 只要求
  * 位元組數為偶數——最後一段殘餘 chunk 天然滿足這個前提,因為輸入的
  * 位元組數本身就是偶數〔PCM16 是 2 bytes/sample〕)。

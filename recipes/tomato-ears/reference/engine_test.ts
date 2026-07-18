@@ -21,13 +21,16 @@
  */
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@^1.0.19";
+import { fromFileUrl } from "jsr:@std/path@^1.0.9/from-file-url";
 import { EngineClient } from "./engine.ts";
 
-/** 本 worktree build 出的 fake-engine 測試用 binary(見上方前置指示)。 */
-const FAKE_HOST_PATH = new URL(
-  "../../../target/release/catcher-asr-host",
-  import.meta.url,
-).pathname;
+/** 本 worktree build 出的 fake-engine 測試用 binary(見上方前置指示)。
+ * why fromFileUrl(見 reference/setup.ts 的 MANIFEST_PATH 註解):裸
+ * `new URL(...).pathname` 在 Windows 會產生 `/C:/...` 這種非法原生路徑，
+ * 導致 Deno.stat/readFile 以 os error 3 失敗——Task 6 Windows 演練實測發現。 */
+const FAKE_HOST_PATH = fromFileUrl(
+  new URL("../../../target/release/catcher-asr-host", import.meta.url),
+);
 
 async function assertBinaryBuilt(): Promise<void> {
   try {

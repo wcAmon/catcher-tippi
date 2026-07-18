@@ -22,6 +22,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@^1.0.19";
+import { fromFileUrl } from "jsr:@std/path@^1.0.9/from-file-url";
 
 /** 這些 probe 用 shell script 當假執行檔,Windows 上不適用;
  * Windows 端的等價驗證由 Task 6 演練(真機 ssh)覆蓋。 */
@@ -170,11 +171,13 @@ try {
   },
 });
 
-/** literal-task 測試需要 mac 本地 build 的 fake-engine host(同 engine_test.ts)。 */
-const FAKE_HOST_PATH = new URL(
-  "../../../target/release/catcher-asr-host",
-  import.meta.url,
-).pathname;
+/** literal-task 測試需要 mac 本地 build 的 fake-engine host(同 engine_test.ts)。
+ * why fromFileUrl(見 reference/setup.ts 的 MANIFEST_PATH 註解):裸
+ * `new URL(...).pathname` 在 Windows 會產生 `/C:/...` 這種非法原生路徑，
+ * 導致 Deno.stat/readFile 以 os error 3 失敗——Task 6 Windows 演練實測發現。 */
+const FAKE_HOST_PATH = fromFileUrl(
+  new URL("../../../target/release/catcher-asr-host", import.meta.url),
+);
 
 async function fakeHostBuilt(): Promise<boolean> {
   try {

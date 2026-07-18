@@ -29,7 +29,8 @@
 
 1. **錄音管線**:`getUserMedia(mono)` → `AudioContext`(瀏覽器原生取樣率)→
    `AudioWorklet`:線性內插重採樣到 16 kHz、累積滿 **1600 samples**(≈100ms,
-   對齊 `docs/protocol/asr-host-v1.md` 的 chunk 建議值)發一個 `Int16Array`
+   對齊 `PROTOCOL.md`(配方包內;源 repo 路徑 `docs/protocol/asr-host-v1.md`)
+   的 chunk 建議值)發一個 `Int16Array`
    chunk(`port.postMessage`,transferable,不複製記憶體)。停止錄音時,緩衝區
    裡不足 1600 samples 的殘餘也會被沖洗出來送出(`flush()` 交握,2 秒逾時
    保底),避免每次停止都固定丟失最後一小段語音。
@@ -37,7 +38,8 @@
    控制訊息(`{"type":"start"}`/`{"type":"stop"}`)走 **text frame**。伺服端
    把 binary frame 轉成 base64 塞進 `asr-host-v1` 協定的 `audio` 指令,寫進
    引擎子行程的 stdin。
-3. **引擎**:一個常駐子行程,用 `docs/protocol/asr-host-v1.md`(凍結版本)描述
+3. **引擎**:一個常駐子行程,用 `PROTOCOL.md`(配方包內;源 repo 路徑
+   `docs/protocol/asr-host-v1.md`,凍結版本)描述
    的 stdin/stdout JSON-lines 協定溝通——
    - mac:`catcher-asr-host`(MLX / Metal 推論);
    - Windows:`nemotron-asr-host`(onnxruntime-genai + DirectML,實測輸 CPU
@@ -75,7 +77,7 @@ host、真模型,不是 fake/stub):
 | `binding_test.ts`     | 服務無法從非 loopback 網路介面連線                                         |
 | `permissions_test.ts` | `deno.json` 各平台 task 的執行旗標與 `manifest.json.permissions` 逐字相等  |
 
-另有 `asr_metric_test.ts`(11 個純函式單元測試,固定案例)把 `protocol_test.ts`
+另有 `asr_metric_test.ts`(13 個純函式單元測試,固定案例)把 `protocol_test.ts`
 用到的正規化編輯距離演算法本身釘住——這不是「使用者驗收」的一部分(不需要
 真 host),但同樣包含在 `deno test verify/` 的執行範圍內,全綠是整體驗收的
 一部分。
