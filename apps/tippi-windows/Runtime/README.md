@@ -24,6 +24,10 @@ Only build-system flags were changed: `/MP` was enabled to parallelize MSVC and
 `/Qspectre` was disabled because its optional library was not installed. No
 ONNX Runtime GenAI inference source was changed.
 
+VoxCPM2 uses a separate process and separate ggml runtime so its Vulkan backend
+cannot conflict with this ONNX Runtime/DirectML stack. See
+[`tts/README.md`](tts/README.md) for that runtime's pinned source and hashes.
+
 The shipped INT4 Nemotron graph currently fails a real-audio DirectML probe on
 the tested Intel Iris Xe and NVIDIA RTX 4060 Laptop GPUs. Tippi therefore
 automatically selects CPU for this pinned model revision. DirectML remains in

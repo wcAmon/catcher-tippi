@@ -15,6 +15,8 @@ public sealed partial class TextInjectionCoordinator
     private readonly ITextInjector _injector;
     private int _injectedLength;
     private bool _returnSent;
+    private bool _submitRequested;
+    private int _contentLengthWhenSubmitRequested;
     private string _latestText = string.Empty;
 
     public TextInjectionCoordinator(ITextInjector injector)
@@ -26,6 +28,8 @@ public sealed partial class TextInjectionCoordinator
     {
         _injectedLength = 0;
         _returnSent = false;
+        _submitRequested = false;
+        _contentLengthWhenSubmitRequested = 0;
         _latestText = string.Empty;
     }
 
@@ -40,10 +44,9 @@ public sealed partial class TextInjectionCoordinator
         Match command = SubmitCommandAtEnd().Match(fullText);
         if (command.Success)
         {
-            int contentLength = command.Index;
-            if (InjectThrough(fullText, contentLength) && _injector.PressEnter())
+            if (_submitRequested)
             {
-                _returnSent = true;
+                SubmitThrough(command.Index);
             }
             return;
         }
@@ -52,11 +55,53 @@ public sealed partial class TextInjectionCoordinator
         InjectThrough(fullText, safeLength);
     }
 
+    public void RequestSubmit()
+    {
+        if (_returnSent)
+        {
+            return;
+        }
+        if (!_submitRequested)
+        {
+            _contentLengthWhenSubmitRequested = _latestText.Length;
+            _submitRequested = true;
+        }
+        Match command = SubmitCommandAtEnd().Match(_latestText);
+        if (command.Success)
+        {
+            SubmitThrough(command.Index);
+        }
+    }
+
     public void Finish()
     {
-        if (!_returnSent)
+        if (_returnSent)
+        {
+            return;
+        }
+        if (_submitRequested)
+        {
+            Match command = SubmitCommandAtEnd().Match(_latestText);
+            int contentLength = command.Success
+                ? command.Index
+                : Math.Max(_injectedLength, _contentLengthWhenSubmitRequested);
+            SubmitThrough(contentLength);
+        }
+        else
         {
             InjectThrough(_latestText, _latestText.Length);
+        }
+    }
+
+    private void SubmitThrough(int contentLength)
+    {
+        if (contentLength <= 0 && _injectedLength <= 0)
+        {
+            return;
+        }
+        if (InjectThrough(_latestText, contentLength) && _injector.PressEnter())
+        {
+            _returnSent = true;
         }
     }
 

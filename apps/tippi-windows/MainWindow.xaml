@@ -1,17 +1,15 @@
 <Window x:Class="Tippi.Windows.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Tippi — 本機語音轉文字" Height="700" Width="960"
-        MinHeight="600" MinWidth="780" Background="#F4F5F9"
+        Title="Tippi — 本機語音工具" Height="760" Width="1000"
+        MinHeight="660" MinWidth="820" Background="#F4F5F9"
         FontFamily="Segoe UI, Microsoft JhengHei UI"
         Loaded="Window_Loaded" Closing="Window_Closing">
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Margin="0,0,0,18">
@@ -26,7 +24,9 @@
             </Border>
             <StackPanel Grid.Column="1" Margin="14,1,0,0">
                 <TextBlock Text="Tippi for Windows" FontSize="23" FontWeight="SemiBold" Foreground="#182230" />
-                <TextBlock x:Name="RuntimeSubtitle" Text="Nemotron 3.5 ASR · CPU / DirectML 自動選擇" Foreground="{StaticResource MutedBrush}" FontSize="13" />
+                <TextBlock x:Name="RuntimeSubtitle"
+                           Text="Nemotron ASR · Voice Command · Diarization · VoxCPM2 TTS"
+                           Foreground="{StaticResource MutedBrush}" FontSize="13" />
             </StackPanel>
             <Button Grid.Column="2" Content="開啟模型資料夾" Click="OpenModelFolder_Click" VerticalAlignment="Center" />
         </Grid>
@@ -38,71 +38,152 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock x:Name="StatusText" Text="正在檢查模型…" FontWeight="SemiBold" Foreground="#344054" />
+                    <TextBlock x:Name="StatusText" Text="正在檢查 ASR、Voice Command 與 Diarization 模型…"
+                               FontWeight="SemiBold" Foreground="#344054" />
                     <ProgressBar x:Name="ModelProgress" Height="7" Margin="0,9,18,0" Minimum="0" Maximum="1" Value="0" />
                     <TextBlock x:Name="ProgressText" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" />
                 </StackPanel>
-                <Button Grid.Column="1" x:Name="PrepareButton" Content="下載／修復模型" Click="PrepareButton_Click"
-                        VerticalAlignment="Center" IsEnabled="False" />
+                <Button Grid.Column="1" x:Name="PrepareButton" Content="重新下載／修復"
+                        Click="PrepareButton_Click" VerticalAlignment="Center" IsEnabled="False" />
             </Grid>
         </Border>
 
-        <Border Grid.Row="2" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="0,0,0,12">
-            <WrapPanel VerticalAlignment="Center">
-                <Button x:Name="StartButton" Content="● 開始錄音" Style="{StaticResource PrimaryButton}"
-                        Click="StartButton_Click" IsEnabled="False" />
-                <Button x:Name="StopButton" Content="■ 停止" Click="StopButton_Click" IsEnabled="False" />
-                <Button x:Name="FileButton" Content="轉錄音訊檔" Click="FileButton_Click" IsEnabled="False" />
-                <TextBlock Text="語言" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
-                <ComboBox x:Name="LanguageBox" Width="150" Height="36" SelectedValuePath="Tag" SelectedIndex="0">
-                    <ComboBoxItem Content="自動偵測" Tag="auto" />
-                    <ComboBoxItem Content="中文（普通話）" Tag="zh-CN" />
-                    <ComboBoxItem Content="English (US)" Tag="en-US" />
-                    <ComboBoxItem Content="日本語" Tag="ja-JP" />
-                    <ComboBoxItem Content="한국어" Tag="ko-KR" />
-                    <ComboBoxItem Content="Deutsch" Tag="de-DE" />
-                    <ComboBoxItem Content="Français" Tag="fr-FR" />
-                </ComboBox>
-                <TextBlock Text="運算" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
-                <ComboBox x:Name="BackendBox" Width="190" Height="36" SelectedValuePath="Tag"
-                          SelectionChanged="BackendBox_SelectionChanged">
-                    <ComboBoxItem Content="自動選擇（建議）" Tag="auto" />
-                    <ComboBoxItem Content="GPU / DirectML（可回退）" Tag="dml" />
-                    <ComboBoxItem Content="CPU" Tag="cpu" />
-                </ComboBox>
-                <CheckBox x:Name="TraditionalCheck" Content="台灣繁體" IsChecked="True" Margin="16,9,0,0" />
-                <CheckBox x:Name="VadCheck" Content="略過靜音" IsChecked="True" Margin="16,9,0,0" />
-                <CheckBox x:Name="DiarizationCheck" Content="說話者分離（停止後分析）" IsChecked="True" Margin="16,9,0,0"
-                          ToolTip="即時辨識維持順暢；停止錄音或檔案轉錄完成後，再以 CPU 標記不同說話者。" />
-            </WrapPanel>
-        </Border>
+        <TabControl Grid.Row="2" Background="Transparent" BorderThickness="0" Padding="0">
+            <TabItem Header="語音輸入 / ASR">
+                <Grid Margin="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-        <Border Grid.Row="3" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <DockPanel Margin="0,0,0,10">
-                    <TextBlock Text="逐字稿" FontSize="16" FontWeight="SemiBold" Foreground="#182230" />
-                    <CheckBox x:Name="InjectCheck" DockPanel.Dock="Right" HorizontalAlignment="Right"
-                              Content="語音輸入到目前程式（說「幫我送出」按 Enter）" Foreground="#475467" />
-                </DockPanel>
-                <TextBox Grid.Row="1" x:Name="TranscriptBox" AcceptsReturn="True" IsReadOnly="True"
-                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0"
-                         Background="#FAFAFC" Padding="14" FontSize="17" TextBlock.LineHeight="27"
-                         AutomationProperties.Name="逐字稿內容" />
-            </Grid>
-        </Border>
+                    <Border Grid.Row="0" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+                        <WrapPanel VerticalAlignment="Center">
+                            <Button x:Name="StartButton" Content="開始錄音" Style="{StaticResource PrimaryButton}"
+                                    Click="StartButton_Click" IsEnabled="False" />
+                            <Button x:Name="StopButton" Content="停止" Click="StopButton_Click" IsEnabled="False" />
+                            <Button x:Name="FileButton" Content="辨識音訊檔" Click="FileButton_Click" IsEnabled="False" />
+                            <TextBlock Text="語言" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
+                            <ComboBox x:Name="LanguageBox" Width="150" Height="36" SelectedValuePath="Tag" SelectedIndex="0">
+                                <ComboBoxItem Content="自動偵測" Tag="auto" />
+                                <ComboBoxItem Content="中文（普通話）" Tag="zh-CN" />
+                                <ComboBoxItem Content="English (US)" Tag="en-US" />
+                                <ComboBoxItem Content="日本語" Tag="ja-JP" />
+                                <ComboBoxItem Content="한국어" Tag="ko-KR" />
+                                <ComboBoxItem Content="Deutsch" Tag="de-DE" />
+                                <ComboBoxItem Content="Français" Tag="fr-FR" />
+                            </ComboBox>
+                            <TextBlock Text="ASR" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
+                            <ComboBox x:Name="BackendBox" Width="190" Height="36" SelectedValuePath="Tag"
+                                      SelectionChanged="BackendBox_SelectionChanged">
+                                <ComboBoxItem Content="自動選擇（建議）" Tag="auto" />
+                                <ComboBoxItem Content="GPU / DirectML（可用時）" Tag="dml" />
+                                <ComboBoxItem Content="CPU" Tag="cpu" />
+                            </ComboBox>
+                            <CheckBox x:Name="TraditionalCheck" Content="繁體中文" IsChecked="True" Margin="16,9,0,0" />
+                            <CheckBox x:Name="VadCheck" Content="語音活動偵測" IsChecked="True" Margin="16,9,0,0" />
+                            <CheckBox x:Name="DiarizationCheck" Content="停止後分辨說話者" IsChecked="True" Margin="16,9,0,0"
+                                      ToolTip="說話者模型常駐 CPU 記憶體；推論只在停止或讀完檔案後執行，不占用 GPU。" />
+                        </WrapPanel>
+                    </Border>
 
-        <DockPanel Grid.Row="4" Margin="0,14,0,0">
-            <TextBlock Text="所有語音與推論都留在這台電腦；只在首次下載模型時連線。"
-                       Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="清除" Click="ClearButton_Click" />
-                <Button Content="複製" Click="CopyButton_Click" />
-                <Button Content="儲存…" Click="SaveButton_Click" Margin="0" />
-            </StackPanel>
-        </DockPanel>
+                    <Border Grid.Row="1" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <DockPanel Margin="0,0,0,10">
+                                <TextBlock Text="辨識結果" FontSize="16" FontWeight="SemiBold" Foreground="#182230" />
+                                <CheckBox x:Name="InjectCheck" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                          IsChecked="True"
+                                          Content="輸入前景程式；說「幫我送出」後按 Enter（獨立 Voice Command 模型）"
+                                          Foreground="#475467" />
+                            </DockPanel>
+                            <TextBox Grid.Row="1" x:Name="TranscriptBox" AcceptsReturn="True" IsReadOnly="True"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0"
+                                     Background="#FAFAFC" Padding="14" FontSize="17" TextBlock.LineHeight="27"
+                                     AutomationProperties.Name="辨識文字內容" />
+                        </Grid>
+                    </Border>
+
+                    <DockPanel Grid.Row="2" Margin="0,14,0,0">
+                        <TextBlock Text="ASR、Voice Command 與 Diarization 常駐 CPU；TTS 可同時在 Vulkan GPU 執行。"
+                                   Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="清除" Click="ClearButton_Click" />
+                            <Button Content="複製" Click="CopyButton_Click" />
+                            <Button Content="儲存…" Click="SaveButton_Click" Margin="0" />
+                        </StackPanel>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="VoxCPM2 TTS">
+                <Grid Margin="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="TtsStatusText" Text="VoxCPM2 Q8 模型尚未準備"
+                                           FontWeight="SemiBold" Foreground="#344054" />
+                                <ProgressBar x:Name="TtsProgress" Height="7" Margin="0,9,18,0" Minimum="0" Maximum="1" Value="0" />
+                                <TextBlock x:Name="TtsProgressText" Margin="0,6,0,0" FontSize="12"
+                                           Foreground="{StaticResource MutedBrush}" Text="必要下載約 3.55 GB；模型不會放進 Git repo。" />
+                            </StackPanel>
+                            <Button Grid.Column="1" x:Name="TtsPrepareButton" Content="下載 TTS 模型"
+                                    Click="TtsPrepareButton_Click" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="1" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="要合成的文字" FontSize="16" FontWeight="SemiBold" Foreground="#182230" Margin="0,0,0,10" />
+                            <TextBox Grid.Row="1" x:Name="TtsInputBox" AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto" Background="#FAFAFC" BorderThickness="0"
+                                     Padding="14" FontSize="17" TextBlock.LineHeight="27"
+                                     Text="你好，我是 Tippi。這段語音完全在你的 Windows 電腦上合成。" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="2" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16">
+                        <WrapPanel VerticalAlignment="Center">
+                            <Button x:Name="TtsSpeakButton" Content="產生並播放" Style="{StaticResource PrimaryButton}"
+                                    Click="TtsSpeakButton_Click" IsEnabled="False" />
+                            <Button x:Name="TtsStopButton" Content="停止 / 卸載" Click="TtsStopButton_Click" IsEnabled="False" />
+                            <TextBlock Text="TTS 後端" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
+                            <ComboBox x:Name="TtsBackendBox" Width="210" Height="36" SelectedValuePath="Tag" SelectedIndex="0">
+                                <ComboBoxItem Content="自動：Vulkan → CPU" Tag="auto" />
+                                <ComboBoxItem Content="GPU / Vulkan" Tag="vulkan" />
+                                <ComboBoxItem Content="CPU" Tag="cpu" />
+                            </ComboBox>
+                            <TextBlock Text="品質 / 速度" VerticalAlignment="Center" Margin="14,0,7,0" Foreground="#475467" />
+                            <ComboBox x:Name="TtsQualityBox" Width="175" Height="36" SelectedValuePath="Tag" SelectedIndex="1">
+                                <ComboBoxItem Content="快速（4 steps）" Tag="4" />
+                                <ComboBoxItem Content="平衡（6 steps）" Tag="6" />
+                                <ComboBoxItem Content="高品質（10 steps）" Tag="10" />
+                            </ComboBox>
+                        </WrapPanel>
+                    </Border>
+
+                    <TextBlock Grid.Row="3" Margin="2,12,0,0" Foreground="{StaticResource MutedBrush}"
+                               Text="選用 BaseLM Q8 + Acoustic F16（約 3.31 GiB）。GPU 失敗或沒有獨顯時會自動改用 CPU，但 CPU 合成會明顯較慢。" />
+                </Grid>
+            </TabItem>
+        </TabControl>
     </Grid>
 </Window>

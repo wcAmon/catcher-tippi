@@ -85,13 +85,7 @@ internal sealed class VerifiedModelInstaller : IDisposable
 
             string destination = Path.Combine(ModelDirectory, file.Name);
             string partial = destination + ".part";
-            await DownloadFileAsync(file, partial, completedBeforeCurrent, progress, cancellationToken);
-
-            if (!await HasExpectedHashAsync(partial, file.Sha256, cancellationToken))
-            {
-                File.Delete(partial);
-                throw new InvalidDataException($"模型檔案 {file.Name} 的 SHA-256 校驗失敗。");
-            }
+            await DownloadVerifiedFileAsync(file, partial, completedBeforeCurrent, progress, cancellationToken);
 
             File.Move(partial, destination, true);
             completedBeforeCurrent += file.Size;
@@ -186,7 +180,9 @@ internal sealed class VerifiedModelInstaller : IDisposable
         {
             long current = existing;
             int read;
-            while ((read = await remote.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
+            while ((read = await remote.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                .AsTask()
+                .WaitAsync(TimeSpan.FromMinutes(2), cancellationToken)) > 0)
             {
                 await local.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 current += read;
@@ -203,6 +199,41 @@ internal sealed class VerifiedModelInstaller : IDisposable
         {
             throw new InvalidDataException($"模型檔案 {file.Name} 大小不符，下載可能不完整。");
         }
+    }
+
+    private async Task DownloadVerifiedFileAsync(
+        ModelFile file,
+        string partialPath,
+        long completedBeforeCurrent,
+        IProgress<ModelInstallProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 4;
+        for (int attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            try
+            {
+                await DownloadFileAsync(file, partialPath, completedBeforeCurrent, progress, cancellationToken);
+                if (await HasExpectedHashAsync(partialPath, file.Sha256, cancellationToken))
+                {
+                    return;
+                }
+                File.Delete(partialPath);
+                throw new InvalidDataException($"模型檔案 {file.Name} 的 SHA-256 校驗失敗。");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (
+                attempt < maximumAttempts &&
+                (ex is HttpRequestException || ex is IOException ||
+                 ex is TimeoutException || ex is InvalidDataException))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
+            }
+        }
+        throw new InvalidDataException($"模型檔案 {file.Name} 下載重試後仍然失敗。");
     }
 
     private static async Task<bool> HasExpectedHashAsync(

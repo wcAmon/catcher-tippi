@@ -21,8 +21,16 @@ with real speech, caches the result for the current model/runtime/driver
 signature, and safely falls back to CPU if GPU loading or decoding fails. The
 current pinned INT4 graph is not DirectML-compatible on the tested Intel and
 NVIDIA GPUs, so this revision selects CPU. Speaker attribution uses small
-Pyannote INT8 and NVIDIA TitaNet-S ONNX models through sherpa-onnx after
-recording stops, so CUDA and a discrete GPU are not required.
+Pyannote INT8 and NVIDIA TitaNet-S ONNX models through sherpa-onnx. They remain
+resident on CPU and run their analysis after recording stops, so CUDA and a
+discrete GPU are not required.
+Windows Voice Input now fans the same microphone PCM into an independent 3M
+sherpa-onnx keyword spotter; ASR text alone cannot trigger the `幫我送出`
+event. An optional VoxCPM2 TTS tab downloads only the BaseLM Q8_0 and Acoustic
+F16 GGUF files, then runs a pinned `llama.cpp-omni` server in a separate
+process. TTS automatically tries Vulkan and falls back to CPU, so it can use a
+GPU while ASR, Voice Command, and speaker diarization remain on CPU, or run
+entirely without a discrete GPU.
 The self-contained build includes .NET and the Visual C++ runtime:
 
 ```powershell

@@ -40,6 +40,7 @@ public partial class MainWindow : Window
         _windowLoaded = true;
         nint handle = new WindowInteropHelper(this).Handle;
         _injectionCoordinator = new TextInjectionCoordinator(new WindowsTextInjector(handle));
+        RefreshTtsPresentation();
         await PrepareModelAsync(repair: false);
     }
 
@@ -54,18 +55,25 @@ public partial class MainWindow : Window
         PrepareButton.IsEnabled = false;
         try
         {
-            long allModelBytes = ModelManifest.TotalBytes + DiarizationModelManifest.TotalBytes;
+            long allModelBytes = ModelManifest.TotalBytes +
+                DiarizationModelManifest.TotalBytes +
+                KeywordModelManifest.ArchiveBytes;
             IProgress<ModelInstallProgress> asrProgress = CombinedProgress(0, allModelBytes, "語音辨識");
             IProgress<ModelInstallProgress> diarizationProgress = CombinedProgress(
                 ModelManifest.TotalBytes,
                 allModelBytes,
                 "說話者分離");
+            IProgress<ModelInstallProgress> keywordProgress = CombinedProgress(
+                ModelManifest.TotalBytes + DiarizationModelManifest.TotalBytes,
+                allModelBytes,
+                "Voice Command");
 
             if (repair)
             {
                 StatusText.Text = "正在校驗並修復本機模型…";
                 await _installer.RepairAsync(asrProgress, _lifetime.Token);
                 await _diarizationInstaller.RepairAsync(diarizationProgress, _lifetime.Token);
+                await _keywordInstaller.RepairAsync(keywordProgress, _lifetime.Token);
             }
             else
             {
@@ -78,6 +86,11 @@ public partial class MainWindow : Window
                 {
                     StatusText.Text = "正在下載 CPU 說話者分離模型（約 39.9 MiB）…";
                     await _diarizationInstaller.InstallAsync(diarizationProgress, _lifetime.Token);
+                }
+                if (!_keywordInstaller.IsInstalled())
+                {
+                    StatusText.Text = "正在下載獨立 Voice Command 模型（壓縮檔約 31.4 MiB）…";
+                    await _keywordInstaller.InstallAsync(keywordProgress, _lifetime.Token);
                 }
             }
 
@@ -93,9 +106,25 @@ public partial class MainWindow : Window
                 _engine = loaded.Engine;
                 UpdateRuntimePresentation(loaded);
             }
+            if (_voiceCommandSpotter is null)
+            {
+                StatusText.Text = "正在載入 5.4 MB Voice Command 模型…";
+                _voiceCommandSpotter = await Task.Run(
+                    () => new VoiceCommandSpotter(_keywordInstaller),
+                    _lifetime.Token);
+            }
+            if (_diarizer is null)
+            {
+                StatusText.Text = "正在載入 Speaker Diarization CPU 模型…";
+                _diarizer = await Task.Run(
+                    () => new SpeakerDiarizer(
+                        _diarizationInstaller.SegmentationModelPath,
+                        _diarizationInstaller.EmbeddingModelPath),
+                    _lifetime.Token);
+            }
 
             ModelProgress.Value = 1;
-            StatusText.Text = $"準備完成：{CurrentBackendName()}，可開始錄音或選擇音訊檔。";
+            StatusText.Text = $"準備完成：ASR {CurrentBackendName()} · Voice Command CPU · Diarization CPU。";
             ProgressText.Text += $"  模型位於：{ModelsRootDirectory()}";
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -134,6 +163,8 @@ public partial class MainWindow : Window
 
         _diarizer?.Dispose();
         _diarizer = null;
+        _voiceCommandSpotter?.Dispose();
+        _voiceCommandSpotter = null;
         _engine?.Dispose();
         _engine = null;
         _backendLoader.InvalidateProfile();
@@ -216,6 +247,7 @@ public partial class MainWindow : Window
             await Task.Run(
                 () => BeginSessionWithFallback(language, useVad, _recordingTraditional),
                 _lifetime.Token);
+            BeginVoiceCommandSession(inject);
             _recognitionWorker = RunRecognitionWorkerAsync(
                 _audioChannel.Reader,
                 language,
@@ -277,6 +309,10 @@ public partial class MainWindow : Window
             await foreach (float[] samples in reader.ReadAllAsync(cancellationToken))
             {
                 audio.AddRange(samples);
+                if (ProcessVoiceCommand(samples, inject))
+                {
+                    PublishVoiceCommandDetection(inject);
+                }
                 TranscriptionUpdate? update;
                 try
                 {
@@ -338,6 +374,10 @@ public partial class MainWindow : Window
                 latest = final;
                 collector.Update(final.RawText, audio.Count / 16_000d);
                 PublishUpdate(final, inject);
+            }
+            if (FinishVoiceCommand(inject))
+            {
+                PublishVoiceCommandDetection(inject);
             }
             if (inject)
             {
@@ -576,7 +616,7 @@ public partial class MainWindow : Window
         string reason = cause.GetBaseException().Message.ReplaceLineEndings(" ");
         Dispatcher.BeginInvoke(() =>
         {
-            RuntimeSubtitle.Text = "Nemotron 3.5 ASR · CPU 安全回退";
+            RuntimeSubtitle.Text = "ASR CPU 安全回退 · Voice Command CPU · Diarization CPU · VoxCPM2 Vulkan/CPU";
             StatusText.Text = "GPU 推論中斷，已切換 CPU 並繼續辨識。";
             ProgressText.Text = reason;
         });
@@ -588,15 +628,18 @@ public partial class MainWindow : Window
 
     private void UpdateRuntimePresentation(InferenceLoadResult loaded)
     {
-        RuntimeSubtitle.Text = $"Nemotron 3.5 ASR · {InferenceBackendPolicy.DisplayName(loaded.SelectedBackend)} · 說話者分離 CPU";
+        RuntimeSubtitle.Text = $"ASR {InferenceBackendPolicy.DisplayName(loaded.SelectedBackend)} · Voice Command CPU · Diarization CPU · VoxCPM2 Vulkan/CPU";
         ProgressText.Text = loaded.Detail;
     }
 
     private void SetBusy(bool busy)
     {
         _busy = busy;
-        StartButton.IsEnabled = !busy && _engine is not null;
-        FileButton.IsEnabled = !busy && _engine is not null;
+        bool coreModelsReady = _engine is not null &&
+            _voiceCommandSpotter is not null &&
+            _diarizer is not null;
+        StartButton.IsEnabled = !busy && coreModelsReady;
+        FileButton.IsEnabled = !busy && coreModelsReady;
         PrepareButton.IsEnabled = !busy;
         LanguageBox.IsEnabled = !busy;
         BackendBox.IsEnabled = !busy;
@@ -679,6 +722,8 @@ public partial class MainWindow : Window
         _microphone?.Dispose();
         _diarizer?.Dispose();
         _engine?.Dispose();
+        DisposeVoiceCommand();
+        await ShutdownTtsAsync();
         _diarizationInstaller.Dispose();
         _installer.Dispose();
         _lifetime.Dispose();
