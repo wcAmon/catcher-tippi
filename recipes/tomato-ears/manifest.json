@@ -39,9 +39,9 @@
   "dependencies": {
     "engine": {
       "macos-arm64": {
-        "url": "https://github.com/wcAmon/catcher-tippi/releases/download/asr-host-v0.1.0/catcher-asr-host-v0.1.0-macos-arm64.tar.gz",
-        "sha256": "4a536c0c95e70d5d9b8cfbd764ddf4d4208395b1407dfce93532081f67ed251c",
-        "byteCount": 4279499
+        "url": "https://github.com/wcAmon/catcher-tippi/releases/download/asr-host-v0.1.1/catcher-asr-host-v0.1.1-macos-arm64.tar.gz",
+        "sha256": "a871617bfd617eaf635206964ce0a095ef8d6f6ce1d012c088e80a4633b42fea",
+        "byteCount": 29260902
       },
       "windows-x64": {
         "url": "https://github.com/wcAmon/catcher-tippi/releases/download/nemotron-asr-host-v0.1.0/nemotron-asr-host-v0.1.0-windows-x64.zip",

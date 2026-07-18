@@ -63,3 +63,26 @@ Deno.test("normalizeForAsr + normalizedLevenshtein：組合行為對齊 protocol
   assertEquals(distance > 0, true);
   assertEquals(distance <= 0.25, true);
 });
+
+// 以下兩個案例直接鎖死 protocol_test.ts 用來判定「通過/失敗」的
+// MAX_NORMALIZED_DISTANCE = 0.25 這條門檻線本身（見 protocol_test.ts:34），
+// 而不是像上面那個測試一樣只確認「距離落在某個寬鬆範圍內」——工程出
+// 「恰好卡在 0.25」與「恰好超過 0.25」的字串對，直接斷言邊界兩側的
+// <=/> 比較結果，防止未來任何一份實作（Rust/C#/TS）把門檻語意從
+// 「<= 通過」悄悄改成「< 通過」或反過來卻沒有任何測試會失敗。
+
+Deno.test("normalizedLevenshtein：距離恰好等於 0.25 門檻 → 應判定為通過（<=）", () => {
+  // 4 字元字串，3 字元相同 + 1 字元不同：編輯距離 1，正規化為 1/4 = 0.25，
+  // 精確落在門檻線上（非以近似值逼近）。
+  const distance = normalizedLevenshtein("abcd", "abcx");
+  assertEquals(distance, 0.25);
+  assertEquals(distance <= 0.25, true);
+});
+
+Deno.test("normalizedLevenshtein：距離恰好超過 0.25 門檻（0.3）→ 應判定為不通過（>）", () => {
+  // 10 字元字串，7 字元相同 + 3 字元不同：編輯距離 3，正規化為 3/10 = 0.3，
+  // 精確超過門檻線（非以近似值逼近），與上一個案例互為邊界正反例。
+  const distance = normalizedLevenshtein("abcdefghij", "abcdefXYZj");
+  assertEquals(distance, 0.3);
+  assertEquals(distance <= 0.25, false);
+});
