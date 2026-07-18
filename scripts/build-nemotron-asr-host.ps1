@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 $dotnet = Join-Path $env:USERPROFILE "dotnet\dotnet.exe"
+if (Test-Path publish\nemotron-asr-host) { Remove-Item -Recurse -Force publish\nemotron-asr-host }
 & $dotnet publish apps\nemotron-asr-host\NemotronAsrHost.csproj -c Release -r win-x64 `
     --self-contained -o publish\nemotron-asr-host
 if ($LASTEXITCODE -ne 0) { throw "publish failed" }
