@@ -46,5 +46,13 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>
+    <!-- DEVIATION(brief Step 1 只列 build 腳本):原專案未連結任何授權文字檔,
+         但發布 zip 須含隨附之第三方授權(與上方共用的 Runtime\win-x64\*.dll 對應),
+         沿用 tippi-windows 現成的 Licenses 目錄,不重複建立一份。 -->
+    <None Include="..\tippi-windows\Licenses\**\*">
+      <Link>Licenses\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
   </ItemGroup>
 </Project>
