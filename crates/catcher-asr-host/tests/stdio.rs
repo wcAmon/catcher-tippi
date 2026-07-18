@@ -65,3 +65,31 @@ fn malformed_line_yields_error_and_keeps_running() {
     drop(child.stdin.take());
     assert!(child.wait().expect("wait").success());
 }
+
+#[test]
+fn two_sessions_in_one_process() {
+    let (mut child, mut reader) = spawn_fake_host();
+    assert_eq!(read_line(&mut reader)["event"], "ready");
+
+    let stdin = child.stdin.as_mut().expect("stdin");
+    use base64::Engine as _;
+    let chunk = base64::engine::general_purpose::STANDARD.encode(vec![0u8; 1600 * 2]);
+
+    for _ in 0..2 {
+        writeln!(stdin, r#"{{"cmd":"start","lang":"auto","sample_rate":16000}}"#).unwrap();
+        writeln!(stdin, r#"{{"cmd":"audio","pcm16_b64":"{chunk}"}}"#).unwrap();
+        writeln!(stdin, r#"{{"cmd":"stop"}}"#).unwrap();
+
+        let partial = read_line(&mut reader);
+        assert_eq!(partial["event"], "partial");
+        assert_eq!(partial["text"], "字0");
+
+        let final_event = read_line(&mut reader);
+        assert_eq!(final_event["event"], "final");
+        assert_eq!(final_event["text"], "字0");
+    }
+
+    drop(child.stdin.take()); // EOF → 行程正常結束
+    let status = child.wait().expect("wait");
+    assert!(status.success());
+}

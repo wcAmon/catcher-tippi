@@ -29,10 +29,13 @@ impl Session {
             Command::Start { .. } if self.accumulated.is_some() => {
                 error("會話進行中,請先 stop".into())
             }
-            Command::Start { .. } => {
-                self.accumulated = Some(Vec::new());
-                Vec::new()
-            }
+            Command::Start { .. } => match self.engine.reset() {
+                Ok(()) => {
+                    self.accumulated = Some(Vec::new());
+                    Vec::new()
+                }
+                Err(message) => error(message),
+            },
             Command::Audio { pcm16_b64 } => {
                 let Some(ids) = self.accumulated.as_mut() else {
                     return error("尚未 start".into());
@@ -162,6 +165,63 @@ mod tests {
     fn rejects_wrong_sample_rate() {
         let mut session = Session::new(Box::new(FakeEngine::new()));
         let events = session.handle(Command::Start { lang: "auto".into(), sample_rate: 44100 });
+        assert!(matches!(&events[..], [Event::Error { .. }]));
+    }
+
+    #[test]
+    fn second_session_starts_fresh() {
+        let mut session = Session::new(Box::new(FakeEngine::new()));
+
+        session.handle(start());
+        let events = session.handle(Command::Audio { pcm16_b64: b64_pcm(1600) });
+        assert!(matches!(&events[..], [Event::Partial { text }] if text == "字0"));
+        let events = session.handle(Command::Stop);
+        assert!(matches!(&events[..], [Event::Final { text }] if text == "字0"));
+
+        // 第二個會話:引擎必須重置,id 從頭再來,partial/final 再度是「字0」。
+        session.handle(start());
+        let events = session.handle(Command::Audio { pcm16_b64: b64_pcm(1600) });
+        assert!(matches!(&events[..], [Event::Partial { text }] if text == "字0"));
+        let events = session.handle(Command::Stop);
+        assert!(matches!(&events[..], [Event::Final { text }] if text == "字0"));
+    }
+
+    /// finish() 永遠失敗的測試引擎,用來驗證 stop 失敗分支:
+    /// 會話視為已結束,不會有 final,後續指令都收到 error。
+    struct FailingEngine;
+
+    impl AsrEngine for FailingEngine {
+        fn push(&mut self, _samples: &[f32]) -> Result<Vec<u32>, String> {
+            Ok(Vec::new())
+        }
+
+        fn finish(&mut self) -> Result<Vec<u32>, String> {
+            Err("boom".into())
+        }
+
+        fn decode(&self, _ids: &[u32]) -> Result<String, String> {
+            Ok(String::new())
+        }
+
+        fn backend(&self) -> &'static str {
+            "failing"
+        }
+
+        fn reset(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn stop_failure_ends_session_without_final() {
+        let mut session = Session::new(Box::new(FailingEngine));
+
+        session.handle(start());
+        let events = session.handle(Command::Stop);
+        assert!(matches!(&events[..], [Event::Error { .. }]));
+
+        // 會話已結束:後續 audio 收到 error,而不是被當作進行中的會話處理。
+        let events = session.handle(Command::Audio { pcm16_b64: b64_pcm(1600) });
         assert!(matches!(&events[..], [Event::Error { .. }]));
     }
 }

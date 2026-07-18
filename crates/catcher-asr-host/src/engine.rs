@@ -15,6 +15,8 @@ pub trait AsrEngine {
     /// 把「會話累積的全部 ids」解成文字(host 端已含繁化)。
     fn decode(&self, ids: &[u32]) -> Result<String, String>;
     fn backend(&self) -> &'static str;
+    /// 會話開始前重置引擎,準備新的 utterance。
+    fn reset(&mut self) -> Result<(), String>;
 }
 
 /// 決定性假引擎:每滿 1600 samples 產出一個遞增 id;
@@ -27,6 +29,12 @@ pub struct FakeEngine {
 impl FakeEngine {
     pub fn new() -> Self {
         Self { buffered: 0, next_id: 0 }
+    }
+}
+
+impl Default for FakeEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -53,6 +61,12 @@ impl AsrEngine for FakeEngine {
 
     fn backend(&self) -> &'static str {
         "fake"
+    }
+
+    fn reset(&mut self) -> Result<(), String> {
+        self.buffered = 0;
+        self.next_id = 0;
+        Ok(())
     }
 }
 
@@ -93,5 +107,9 @@ impl AsrEngine for MlxEngine {
 
     fn backend(&self) -> &'static str {
         "mlx"
+    }
+
+    fn reset(&mut self) -> Result<(), String> {
+        self.transcriber.reset().map_err(|e| e.to_string())
     }
 }
