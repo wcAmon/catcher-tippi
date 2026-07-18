@@ -182,6 +182,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "catcher-asr-host"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "clap",
+ "nemotron-mlx",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "catcher-ffi"
 version = "0.1.0"
 dependencies = [

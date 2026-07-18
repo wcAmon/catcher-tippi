@@ -20,3 +20,4 @@
 /.tools/
 
 /.env
+/dist/
