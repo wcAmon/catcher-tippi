@@ -116,15 +116,18 @@ function handleServerMessage(message) {
   }
 }
 
+/** 更新頁面頂端的連線狀態文字(WS 連線的生命週期提示,非錯誤訊息)。 */
 function setConnectionStatus(text) {
   connectionStatus.textContent = text;
 }
 
+/** 在錯誤橫幅顯示一則訊息;重複呼叫以最新一則覆蓋(單一橫幅,不堆疊)。 */
 function showError(message) {
   errorBanner.textContent = message;
   errorBanner.hidden = false;
 }
 
+/** 隱藏並清空錯誤橫幅(開始新一次錄音時呼叫,舊錯誤不再相關)。 */
 function clearError() {
   errorBanner.hidden = true;
   errorBanner.textContent = "";
@@ -134,6 +137,8 @@ function clearError() {
 // final 訊息列表(累積,非替換)
 // ---------------------------------------------------------------------------
 
+/** 把一則 final 逐字稿加進資料陣列與畫面列表尾端(累積語意,與 partial 的
+ * 快照替換相反),並解鎖複製/匯出按鈕。 */
 function appendFinalMessage(text) {
   finalMessages.push(text);
   emptyState.hidden = true;
@@ -186,6 +191,7 @@ exportButton.addEventListener("click", () => {
   flashButtonFeedback(exportButton, "已匯出");
 });
 
+/** 產生匯出檔名用的本地時間戳(YYYYMMDD-HHMMSS,不含檔名非法字元)。 */
 function timestampForFilename() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
@@ -234,6 +240,22 @@ async function startRecording() {
     video: false,
   });
 
+  // 麥克風一到手就立刻建立(部分填充的)session——而不是等所有 await 都
+  // 成功後才一次性賦值。why:這個函式後面還有兩個可能失敗的非同步步驟
+  // (addModule 可能因 worklet 檔案載入/解析失敗而 throw),如果 session
+  // 要等全部成功才存在,中途失敗時 catch 分支呼叫的 teardownSession()
+  // 會因為 session === null 而 no-op——麥克風串流已經取得、指示燈已亮,
+  // 卻沒有任何人負責 stop 它,使用者會看到「錄音失敗但麥克風還開著」。
+  // 讓 teardownSession() 對「已取得的任何資源」都能生效(它對每個欄位
+  // 各自做 null 檢查),失敗發生在哪一步都能完整回收。
+  session = {
+    stream,
+    audioContext: null,
+    sourceNode: null,
+    workletNode: null,
+    requestFlush: null,
+  };
+
   // 不傳 sampleRate 選項:讓 AudioContext 使用裝置原生取樣率。
   // why:若指定一個跟裝置原生取樣率不同的值,瀏覽器會在我們接觸得到
   // 這些樣本之前,先用它自己的(黑箱、品質未知的)重採樣器轉換一次
@@ -241,9 +263,11 @@ async function startRecording() {
   // 而是「瀏覽器已經重採樣過一次的樣本」,等於重採樣兩次,徒增失真。
   // 維持原生取樣率,只在 worklet 裡做我們自己知道邏輯的那一次降採樣。
   const audioContext = new AudioContext();
+  session.audioContext = audioContext;
   await audioContext.audioWorklet.addModule("downsampler-worklet.js");
 
   const sourceNode = audioContext.createMediaStreamSource(stream);
+  session.sourceNode = sourceNode;
   const workletNode = new AudioWorkletNode(audioContext, "downsampler", {
     numberOfInputs: 1,
     // numberOfOutputs: 0——這個節點不產生要播放的音訊,只是把資料轉送到
@@ -256,6 +280,7 @@ async function startRecording() {
     channelCountMode: "explicit",
     channelInterpretation: "speakers",
   });
+  session.workletNode = workletNode;
 
   let pendingFlush = null;
   workletNode.port.onmessage = (event) => {
@@ -280,32 +305,53 @@ async function startRecording() {
 
   socket.send(JSON.stringify({ type: "start" }));
 
-  session = {
-    stream,
-    audioContext,
-    sourceNode,
-    workletNode,
-    /** 讓 stopRecording() 可以要求 worklet 沖洗殘餘 chunk,並等到瀏覽器
-     * 確認「已經沖洗完成」才繼續往下走(送 WS stop、關閉音訊圖)——見
-     * downsampler-worklet.js 的 flush 訊息 why 說明:沒有這個等待,
-     * 最後不到 100ms 的音訊可能在還沒送到 WS 之前,音訊圖就先被拆了。 */
-    requestFlush: () => {
-      return new Promise((resolve) => {
-        pendingFlush = resolve;
-        workletNode.port.postMessage({ type: "flush" });
-      });
-    },
+  /** 讓 stopRecording() 可以要求 worklet 沖洗殘餘 chunk,並等到瀏覽器
+   * 確認「已經沖洗完成」才繼續往下走(送 WS stop、關閉音訊圖)——見
+   * downsampler-worklet.js 的 flush 訊息 why 說明:沒有這個等待,
+   * 最後不到 100ms 的音訊可能在還沒送到 WS 之前,音訊圖就先被拆了。 */
+  session.requestFlush = () => {
+    return new Promise((resolve) => {
+      pendingFlush = resolve;
+      workletNode.port.postMessage({ type: "flush" });
+    });
   };
 
   startButton.disabled = true;
   stopButton.disabled = false;
 }
 
+/** flush 交握的等待上限。why 需要上限:等待 `flushed` 確認的 Promise 只有
+ * worklet 回話才會 resolve——若 worklet 因任何原因不再回應(audio thread
+ * 被瀏覽器暫停、worklet 內部丟出未捕捉例外後停止處理 port 訊息等),沒有
+ * 上限的等待會讓 stopRecording() 永遠卡住,開始/停止兩顆按鈕同時停在
+ * disabled,UI 再也無法恢復。2 秒的選值:flush 只是把記憶體裡既有的
+ * 殘餘樣本 post 回主執行緒(無 I/O、無運算),正常情況毫秒級完成,2 秒
+ * 已是正常耗時的千倍以上——超時幾乎必然代表 worklet 真的死了,再等下去
+ * 沒有意義;同時 2 秒也短到使用者不會覺得停止按鈕壞掉。 */
+const FLUSH_TIMEOUT_MS = 2000;
+
 async function stopRecording() {
   if (session === null) return;
   stopButton.disabled = true;
 
-  await session.requestFlush();
+  if (session.requestFlush !== null) {
+    // Promise.race 加上時限:flush 交握若在 FLUSH_TIMEOUT_MS 內沒有等到
+    // worklet 的 flushed 確認,放棄等待、照常走完停止流程——寧可犧牲最後
+    // 不到 100ms 的殘餘音訊,也不能讓 UI 永遠卡在兩顆按鈕都 disabled 的
+    // 狀態(選值理由見 FLUSH_TIMEOUT_MS 的 why 註解)。
+    const flushedInTime = await Promise.race([
+      session.requestFlush().then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), FLUSH_TIMEOUT_MS)),
+    ]);
+    if (!flushedInTime) {
+      showError("停止錄音時未收到降採樣器的沖洗確認,尾端音訊可能未送出。");
+    }
+  }
+  // 已知且接受的損失窗口:flushed 確認只保證「殘餘 chunk 已從 worklet
+  // post 到主執行緒的佇列」,從確認送達到下面 teardownSession() 拆掉
+  // 音訊圖之間,audio thread 可能又處理了一兩個 render quantum(約幾
+  // 毫秒的新樣本),那些樣本會隨拆圖丟失——量級遠小於一個 100ms chunk,
+  // 對逐字稿無感知影響,不值得為它再加一輪交握的複雜度。
 
   socket.send(JSON.stringify({ type: "stop" }));
   // final 事件由 handleServerMessage 非同步處理(伺服端 stop() 需要時間
@@ -318,17 +364,28 @@ async function stopRecording() {
 
 /** 釋放麥克風串流與音訊圖資源。無論是正常停止還是發生錯誤,都要確保麥克風
  * 指示燈(瀏覽器/系統層級的錄音中提示)會關掉——直接呼叫這個函式比在每個
- * 錯誤分支各自重寫一次清理邏輯更不容易漏掉。 */
+ * 錯誤分支各自重寫一次清理邏輯更不容易漏掉。
+ *
+ * 每個欄位各自 null 檢查(而非只檢查 session 本身):session 在
+ * startRecording() 裡是「邊取得資源邊填入」的部分填充物件(見該函式的
+ * why 註解),失敗可能發生在任何一個 await 之後——這裡必須對「已經取得
+ * 的那部分」照常回收,對「還沒取得的那部分」安靜跳過。這個回收路徑
+ * 無法在 Deno 測試中覆蓋(getUserMedia/AudioContext 只存在於瀏覽器,
+ * 而 downsampler-core_test.ts 刻意只測不碰 Web API 的純函式),由
+ * Task 5 的 mac 實機演練人工驗證;這段註解本身就是給重建 agent 的
+ * 語義錨點,說明「為什麼不能寫成一次性賦值 + 單一 null 檢查」。 */
 function teardownSession() {
   if (session === null) return;
-  session.sourceNode.disconnect();
-  session.workletNode.disconnect();
+  if (session.sourceNode !== null) session.sourceNode.disconnect();
+  if (session.workletNode !== null) session.workletNode.disconnect();
   session.stream.getTracks().forEach((track) => track.stop());
-  session.audioContext.close().catch(() => {
-    // AudioContext 可能已經處於 closed 狀態(例如使用者連續快速按了
-    // 兩次停止),close() 會 reject——這裡的語義是「確保關閉」,不是
-    // 「必須原本開著」,忽略即可(對齊 engine.ts kill() 的既有慣例)。
-  });
+  if (session.audioContext !== null) {
+    session.audioContext.close().catch(() => {
+      // AudioContext 可能已經處於 closed 狀態(例如使用者連續快速按了
+      // 兩次停止),close() 會 reject——這裡的語義是「確保關閉」,不是
+      // 「必須原本開著」,忽略即可(對齊 engine.ts kill() 的既有慣例)。
+    });
+  }
   session = null;
 }
 
