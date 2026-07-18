@@ -7,6 +7,7 @@ stderr 僅供人類閱讀的日誌,消費端必須忽略。
 1. 行程啟動 → 載入模型 → 輸出 `ready`(之前不得輸出任何 stdout 行)。
 2. 之後接受指令。stdin EOF = 結束行程(exit code 0)。
 3. 模型載入失敗:輸出 `error` 後以 exit code 1 結束。
+4. stdin 讀取錯誤(非 EOF)視同 EOF:行程正常結束。
 
 ## 指令(stdin →)
 | 指令 | 格式 | 語義 |
@@ -14,6 +15,10 @@ stderr 僅供人類閱讀的日誌,消費端必須忽略。
 | start | `{"cmd":"start","lang":"auto","sample_rate":16000}` | 開新會話。`lang`:`auto`/`en-US`/`zh-CN`/`zh-TW` 等 checkpoint locale。`sample_rate` 僅接受 16000。會話進行中再收 start → `error`(會話不中斷)。 |
 | audio | `{"cmd":"audio","pcm16_b64":"<base64>"}` | mono 16 kHz PCM16-LE。建議每 chunk 1600 samples(100 ms)。無會話時收到 → `error`。 |
 | stop | `{"cmd":"stop"}` | 沖洗解碼器,輸出 `final`,會話結束。無會話時收到 → `error`。 |
+
+start 成功不輸出任何事件,client 可在送出 start 後立即送 audio。
+
+指令物件拒絕未知欄位:多出任何欄位 → `error`。v1 為凍結格式;新增欄位需要協定版本升級。
 
 ## 事件(stdout ←)
 | 事件 | 格式 | 語義 |
@@ -23,7 +28,10 @@ stderr 僅供人類閱讀的日誌,消費端必須忽略。
 | final | `{"event":"final","text":"..."}` | stop 之後的定稿全文,一個會話恰好一次。 |
 | error | `{"event":"error","message":"..."}` | 可恢復錯誤(格式錯、狀態錯)。行程不退出;致命錯誤才退出(exit 1)。 |
 
+`backend` 欄位正式值為 `mlx`/`dml`/`cpu`;測試用 host 可回報其他值(如 `fake`),client 不得據 backend 值分支行為。
+
 ## 錯誤處理原則
 - 無法解析的行 → `error`,繼續讀下一行。
 - `pcm16_b64` 非法 base64 或位元組數為奇數 → `error`,會話保留。
 - 文字一律 host 端已轉繁體(opencc s2twp);消費端不再轉換。
+- stop 後若引擎沖洗/解碼失敗:輸出 `error`,該會話視為已結束,不會再有 `final`。
