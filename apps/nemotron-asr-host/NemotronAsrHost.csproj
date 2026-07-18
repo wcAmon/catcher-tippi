@@ -9,4 +9,42 @@
     <PlatformTarget>x64</PlatformTarget>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 與 apps/tippi-windows/Tippi.Windows.csproj 相同的釘選理由:managed API 穩定,
+         但下方 Runtime\win-x64 的原生執行期比 NuGet 0.13 新,補上 Nemotron 多語/lang_id 支援。 -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI.Managed" Version="0.13.0" />
+    <PackageReference Include="OpenccNetLib" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 連結既有 Windows app 的引擎程式碼,不複製:兩專案共用同一份 NemotronEngine/
+         InferenceBackend 實作,避免雙份維護飄移。
+         DEVIATION(brief 只列 NemotronEngine.cs + InferenceBackend.cs 兩檔):
+         NemotronEngine.cs 的 BeginSession() 直接呼叫 GeneratorRuntimeOptions.Set()
+         設定 lang_id runtime option,那是第三個檔案(GeneratorRuntimeOptions.cs,
+         P/Invoke 進 onnxruntime-genai.dll)。不連結會編譯失敗(型別找不到),故補上。 -->
+    <Compile Include="..\tippi-windows\Services\NemotronEngine.cs">
+      <Link>Services\NemotronEngine.cs</Link>
+    </Compile>
+    <Compile Include="..\tippi-windows\Services\InferenceBackend.cs">
+      <Link>Services\InferenceBackend.cs</Link>
+    </Compile>
+    <Compile Include="..\tippi-windows\Services\GeneratorRuntimeOptions.cs">
+      <Link>Services\GeneratorRuntimeOptions.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\tests\fixtures\bang-wo-song-chu-zh-cn.wav">
+      <Link>Assets\backend-probe.wav</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <None Include="..\tippi-windows\Runtime\win-x64\*.dll">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
 </Project>

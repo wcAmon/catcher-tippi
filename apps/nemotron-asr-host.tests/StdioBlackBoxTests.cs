@@ -114,6 +114,33 @@ public class StdioBlackBoxTests
         Assert.Equal(0, process.ExitCode);
     }
 
+    // Task 4 追加(task-3-report.md 遺留項 a):協定要求行尾是純 \n(見
+    // docs/protocol/asr-host-v1.md);Program.cs 設了 Console.Out.NewLine = "\n" 修復
+    // .NET 在 Windows 上 Console.Out 預設輸出 \r\n 的問題。這裡故意繞過
+    // StreamReader.ReadLine()(它會把 \r\n/\r/\n 都當成行尾吃掉,驗證不出差異),
+    // 直接讀 BaseStream 的原始位元組,斷言完全沒有 0x0D。
+    [Fact]
+    public void StdoutUsesLfLineEndingsNotCrlf()
+    {
+        using var process = SpawnFakeHost();
+
+        var stdin = process.StandardInput;
+        var chunk = Convert.ToBase64String(new byte[1600 * 2]);
+        stdin.WriteLine("{\"cmd\":\"start\",\"lang\":\"auto\",\"sample_rate\":16000}");
+        stdin.WriteLine($"{{\"cmd\":\"audio\",\"pcm16_b64\":\"{chunk}\"}}");
+        stdin.WriteLine("{\"cmd\":\"stop\"}");
+        stdin.Close(); // EOF → 行程結束,原始 stdout 位元組讀到底
+
+        using var raw = new MemoryStream();
+        process.StandardOutput.BaseStream.CopyTo(raw);
+        Assert.True(process.WaitForExit(5000));
+        Assert.Equal(0, process.ExitCode);
+
+        byte[] bytes = raw.ToArray();
+        Assert.Contains((byte)'\n', bytes); // sanity:確實有多行輸出(ready/partial/final)
+        Assert.DoesNotContain((byte)'\r', bytes); // 逐位元組驗證:行尾是 0A,不是 0D 0A
+    }
+
     // 對應 two_sessions_in_one_process
     [Fact]
     public void TwoSessionsInOneProcess()

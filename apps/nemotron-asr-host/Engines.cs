@@ -45,3 +45,21 @@ public sealed class FakeEngine : IAsrEngine
 
     public string Finish() => _text;
 }
+
+/// 真引擎:包裝既有 NemotronEngine(onnxruntime-genai)。
+/// Begin = BeginSession(language, useVad:false, traditionalChinese:true)——
+/// 繁體輸出與 mac host 的 opencc s2twp 對齊。
+public sealed class NemotronEngineAdapter(
+    Tippi.Windows.Services.NemotronEngine inner,
+    string language,
+    Tippi.Windows.Services.InferenceBackend backend) : IAsrEngine
+{
+    public string Backend { get; } =
+        backend == Tippi.Windows.Services.InferenceBackend.DirectML ? "dml" : "cpu";
+
+    public void Begin() => inner.BeginSession(language, useVad: false, traditionalChinese: true);
+
+    public string? Push(float[] samples) => inner.Process(samples)?.DisplayText;
+
+    public string Finish() => inner.Flush()?.DisplayText ?? "";
+}
