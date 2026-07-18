@@ -6,7 +6,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Command {
-    Start { lang: String, sample_rate: u32 },
+    Start {
+        /// v1 預留欄位:語言由 host 的 --language 啟動參數決定,此欄位被接受但忽略
+        /// (見 docs/protocol/asr-host-v1.md)。
+        #[allow(dead_code)]
+        lang: String,
+        sample_rate: u32,
+    },
     Audio { pcm16_b64: String },
     Stop,
 }

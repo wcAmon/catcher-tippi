@@ -18,6 +18,8 @@ stderr 僅供人類閱讀的日誌,消費端必須忽略。
 
 start 成功不輸出任何事件,client 可在送出 start 後立即送 audio。
 
+> 註:v1 的語言由 host 啟動參數 `--language` 決定;`start.lang` 為 v1 預留欄位,host 接受但忽略。
+
 指令物件拒絕未知欄位:多出任何欄位 → `error`。v1 為凍結格式;新增欄位需要協定版本升級。
 
 ## 事件(stdout ←)
