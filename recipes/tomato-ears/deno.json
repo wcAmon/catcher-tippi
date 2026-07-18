@@ -1,8 +1,11 @@
 {
   "tasks": {
-    "setup": "deno run --allow-net --allow-read=~/tmuh-apps/tomato-ears --allow-write=~/tmuh-apps/tomato-ears --allow-run=tar --allow-env=TMUH_APPS_DIR reference/setup.ts",
-    "start": "deno run --allow-net=127.0.0.1:43117 --allow-read=~/tmuh-apps/tomato-ears --allow-run --allow-env=TMUH_APPS_DIR reference/main.ts",
-    "verify": "deno test --allow-net=127.0.0.1:43117 --allow-read=~/tmuh-apps/tomato-ears --allow-run --allow-env=TMUH_APPS_DIR verify/"
+    "setup:mac": "deno run --allow-net --allow-read=.,../_machine --allow-write=.,../_machine --allow-run=tar --allow-env=TMUH_APPS_DIR reference/setup.ts",
+    "setup:win": "deno run --allow-net --allow-read=.,../_machine --allow-write=.,../_machine --allow-run=tar --allow-env=TMUH_APPS_DIR reference/setup.ts",
+    "start:mac": "deno run --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host --allow-env=TMUH_APPS_DIR reference/main.ts",
+    "start:win": "deno run --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host.exe --allow-env=TMUH_APPS_DIR reference/main.ts",
+    "verify:mac": "deno test --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host --allow-env=TMUH_APPS_DIR verify/",
+    "verify:win": "deno test --allow-net=127.0.0.1:43117 --allow-read=.,../_machine --allow-write=../_machine --allow-run=bin/engine-host.exe --allow-env=TMUH_APPS_DIR verify/"
   },
   "fmt": {
     "useTabs": false,

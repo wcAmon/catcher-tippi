@@ -17,6 +17,7 @@ import {
   type Manifest,
   type ManifestFileEntry,
   resolveEngineBinaryPath,
+  stableEngineBinaryPath,
 } from "./downloader.ts";
 
 /** 對一段記憶體中的 bytes 算 SHA-256(hex)。全域 `crypto.subtle.digest`
@@ -162,6 +163,11 @@ Deno.test("ensureDependencies：雜湊對——下載落地、可解壓、重跑
     const binPath = await resolveEngineBinaryPath(appDir, "macos-arm64");
     assertEquals(await Deno.readTextFile(binPath), "#!/bin/sh\necho fake engine\n");
 
+    // 執行檔已 pin 到穩定路徑 bin/engine-host(--allow-run 靜態宣告的對象),
+    // 內容與原始落點一致。
+    const stablePath = stableEngineBinaryPath(appDir, "macos-arm64");
+    assertEquals(await Deno.readTextFile(stablePath), "#!/bin/sh\necho fake engine\n");
+
     // 模型檔落地且內容正確。
     assertEquals(
       await Deno.readFile(`${appDir}/model/a.bin`),
@@ -176,6 +182,13 @@ Deno.test("ensureDependencies：雜湊對——下載落地、可解壓、重跑
     // 冪等:重跑一次,已存在且雜湊符的檔案不該再發出任何 HTTP 請求。
     const countsBeforeRerun = new Map(fixtureServer.requestCounts);
     await ensureDependencies(manifest, appDir, "macos-arm64");
+    assertEquals(fixtureServer.requestCounts, countsBeforeRerun);
+
+    // 穩定路徑被誤刪 → 重跑 setup 應能從原始落點重新 pin,仍然零 HTTP 請求
+    // (壓縮包與解壓後的原樹都還在,不需要重新下載)。
+    await Deno.remove(stablePath);
+    await ensureDependencies(manifest, appDir, "macos-arm64");
+    assertEquals(await Deno.readTextFile(stablePath), "#!/bin/sh\necho fake engine\n");
     assertEquals(fixtureServer.requestCounts, countsBeforeRerun);
   } finally {
     await fixtureServer.shutdown();

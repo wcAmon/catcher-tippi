@@ -1,38 +1,53 @@
 /**
- * tomato-ears 的 CLI 進入點(`deno task start`):讀 machine-profile 決定平台
- * 與 engine 啟動旗標、確認 setup 已完成、spawn engine host、起 HTTP/WS 服務、
- * 嘗試自動開瀏覽器。
+ * tomato-ears 的 CLI 進入點(`deno task start:mac` / `start:win`):讀
+ * machine-profile 決定平台與 engine 啟動旗標、確認 setup 已完成、spawn
+ * engine host、起 HTTP/WS 服務、嘗試自動開瀏覽器。
  *
- * 設計原則(why):
+ * ## cwd 相對權限模型(本檔與 manifest/deno.json 的核心約定)
+ *
+ * `deno task` **定義上**以 deno.json 所在目錄為工作目錄執行;配方安裝時
+ * deno.json 就放在 app 目錄(`~/tmuh-apps/tomato-ears/`)根部,所以:
+ * - **cwd 就是 app 目錄**——`resolveAppDir()` 預設回傳 `Deno.cwd()`,
+ *   完全不做 HOME/USERPROFILE 查找(Deno 的權限旗標**不展開 `~`**,而讀
+ *   HOME 環境變數又需要額外的 `--allow-env=HOME`,在宣告旗標下會直接
+ *   NotCapable;cwd 模型兩個問題都不存在,權限旗標得以用 `.`/
+ *   `../_machine`/`bin/engine-host` 這種跨機器不變的相對路徑靜態宣告,
+ *   實測證據見 `reference/permissions_probe_test.ts`);
+ * - machine-profile 在 `../_machine/machine-profile.json`(app 目錄的
+ *   上一層是 `~/tmuh-apps/`,`_machine/` 是跨 app 共用目錄,對應
+ *   `--allow-read=../_machine` 與 `--allow-write=../_machine` 旗標);
+ * - `TMUH_APPS_DIR` 環境變數仍可整棵覆寫(值 = `~/tmuh-apps` 的替代
+ *   根目錄),供測試/演練把整套安裝指到任意位置——此時呼叫端要自行給
+ *   對應的權限旗標(演練環境用 dev 旗標,不受 manifest 靜態宣告限制)。
+ *
+ * ## 其他設計原則(why)
+ *
  * - **純邏輯與 I/O 分離**(同 `recipes/env-base/probe/machine-profile.ts`
  *   的既有慣例):`platformFromProfile`/`buildEngineArgs`/`isSetupComplete`
- *   等函式可以獨立單元測試,不必真的 spawn 子行程或起 HTTP 服務;
- *   只有檔案最底部的 `if (import.meta.main)` 區塊(未被測試覆蓋,如同
- *   `machine-profile.ts` 的 `if (import.meta.main)` 一樣)做真正的組裝。
+ *   等函式可獨立單元測試,不必真的 spawn 子行程或起 HTTP 服務;只有
+ *   `run()`(經 `if (import.meta.main)` 觸發)做真正的組裝,由
+ *   `permissions_probe_test.ts` 的「literal `deno task start:mac`」測試
+ *   以與使用者逐字相同的指令做黑箱驗證。
  * - **不從 `recipes/env-base/` import 任何 TS 模組**:配方在店規設計裡是
- *   使用者的 agent 各自複製、獨立組裝的單位(見 Task 4 的 PLAN.md——
- *   agent 只複製 `recipes/tomato-ears/reference/` 到 `~/tmuh-apps/tomato-ears/`,
- *   不會把整個 monorepo 帶過去)。因此本檔跟 `machine-profile.ts` 之間
- *   唯一的耦合是「讀同一份 machine-profile.json 檔案」,不是程式碼 import
- *   ——`homeDir()` 因此在這裡重新寫一份(而非共用),是刻意的配方獨立性
- *   取捨,不是疏忽。
- * - **`TMUH_APPS_DIR` 覆寫整個 `~/tmuh-apps` 根目錄**(不只是
- *   `tomato-ears/` 子目錄),因為 machine-profile.json 也在同一棵樹下
- *   (`_machine/`)——這是 Task 5 mac 演練要用乾淨 `TMUH_HOME` 模擬全新安裝
- *   的前提,見 plan Task 5 段落。
- * - **開瀏覽器允許失敗**:`--allow-run=open`(mac)/`--allow-run=rundll32`
- *   (Windows,用 `rundll32 url.dll,FileProtocolHandler` 而非整個
- *   `--allow-run=cmd`,縮小可執行檔的授權範圍)兩者都可能因為使用者環境
- *   (無 GUI、SSH 連線、企業限制)而失敗——失敗不影響服務本身,只是退化成
- *   印出 URL 讓使用者手動貼到瀏覽器。
+ *   使用者的 agent 各自複製、獨立組裝的單位(agent 只複製
+ *   `recipes/tomato-ears/` 的內容到 app 目錄,不會把整個 monorepo 帶過去)。
+ *   本檔跟 `machine-profile.ts` 之間唯一的耦合是「讀寫同一份
+ *   machine-profile.json 檔案」,不是程式碼 import。
+ * - **開瀏覽器允許失敗**:start 的宣告旗標刻意只授權
+ *   `--allow-run=bin/engine-host[.exe]`(最小權限),不含 `open`/
+ *   `rundll32`——因此在宣告旗標下自動開瀏覽器必然失敗(NotCapable),
+ *   `openBrowser` 捕捉後退化成印出 URL 讓使用者手動開啟。保留這段程式碼
+ *   而非刪除:使用者若自行放寬旗標(加上 `open`),自動開啟立即恢復;
+ *   Task 5 演練若證實自動開啟是必要體驗,再評估把 `open` 加進宣告旗標
+ *   (那是顯式的權限範圍決策,不該由程式碼默默假設)。
  */
 
-// 注意:main.ts 刻意不 import `ensureDependencies`——`deno task setup` 是
+// 注意:main.ts 刻意不 import `ensureDependencies`——`deno task setup:*` 是
 // 獨立的 deno task(獨立的權限集合,含 --allow-net 對外下載),`deno task
-// start` 的權限刻意不含對外網路(見檔頭 why:兩階段權限模型)。setup 是否
-// 完成用 `isSetupComplete()`(純存在性檢查)判斷,不會在 start 階段觸發
-// 任何下載或雜湊驗證。
-import { type Platform, resolveEngineBinaryPath } from "./downloader.ts";
+// start:*` 的權限刻意不含對外網路(兩階段權限模型)。setup 是否完成用
+// `isSetupComplete()`(純存在性檢查)判斷,不會在 start 階段觸發任何下載
+// 或雜湊驗證。
+import { type Platform, stableEngineBinaryPath } from "./downloader.ts";
 import { EngineClient } from "./engine.ts";
 import { startServer } from "./server.ts";
 
@@ -42,33 +57,27 @@ import { startServer } from "./server.ts";
  * 這個常數」的一致性檢查,本 task 範圍不含那個測試。 */
 const DEFAULT_PORT = 43117;
 
-/** 解析使用者家目錄:mac/Linux 用 `HOME`,Windows 用 `USERPROFILE`。
- * 與 `recipes/env-base/probe/machine-profile.ts` 的同名函式邏輯一致,
- * 刻意重複實作而非 import——理由見檔頭 why 說明(配方獨立性)。 */
-function homeDir(): string {
-  const home = Deno.build.os === "windows" ? Deno.env.get("USERPROFILE") : Deno.env.get("HOME");
-  if (!home) {
-    throw new Error("無法解析家目錄(HOME/USERPROFILE 環境變數未設定)");
-  }
-  return home;
+/**
+ * app 安裝目錄:預設 = `Deno.cwd()`(cwd 模型,見檔頭——`deno task` 的
+ * cwd 就是 deno.json 所在的 app 目錄);`TMUH_APPS_DIR` 設定時 =
+ * `${TMUH_APPS_DIR}/tomato-ears`。
+ */
+export function resolveAppDir(): string {
+  const override = Deno.env.get("TMUH_APPS_DIR");
+  return override !== undefined ? `${override}/tomato-ears` : Deno.cwd();
 }
 
 /**
- * `~/tmuh-apps` 根目錄,可用 `TMUH_APPS_DIR` 環境變數整棵覆寫
- * (Task 5 乾淨環境演練、或使用者想換安裝位置時使用)。
+ * env-base 產出的 machine-profile.json 路徑:預設
+ * `../_machine/machine-profile.json`(cwd 相對,恰好落在
+ * `--allow-read=../_machine` 的宣告範圍內);`TMUH_APPS_DIR` 設定時
+ * `${TMUH_APPS_DIR}/_machine/machine-profile.json`。
  */
-export function resolveTmuhAppsRoot(): string {
-  return Deno.env.get("TMUH_APPS_DIR") ?? `${homeDir()}/tmuh-apps`;
-}
-
-/** 本 app 的安裝目錄(`ensureDependencies`/`resolveEngineBinaryPath` 的 `appDir`)。 */
-export function resolveAppDir(): string {
-  return `${resolveTmuhAppsRoot()}/tomato-ears`;
-}
-
-/** env-base 產出的 machine-profile.json 路徑(跨 app 共用,不在 app 自己的目錄下)。 */
 export function resolveMachineProfilePath(): string {
-  return `${resolveTmuhAppsRoot()}/_machine/machine-profile.json`;
+  const override = Deno.env.get("TMUH_APPS_DIR");
+  return override !== undefined
+    ? `${override}/_machine/machine-profile.json`
+    : "../_machine/machine-profile.json";
 }
 
 /**
@@ -125,10 +134,8 @@ export function platformFromProfile(
  *
  * why 只有 Windows 會用到:mac host 固定用 MLX(無「探測後端」這回事);
  * Windows host 依店規第 6 節做「實測探測 + 基準測量」決定 DirectML 或
- * CPU,結果應該只測一次、記住,不必每次啟動都重新探測(那個探測本身要
- * 載入模型跑基準,不便宜)。回填動作(把探測結果寫回 machine-profile)不在
- * 本 task 範圍內(那是 Windows host 自己的 BackendProber 邏輯,見
- * `apps/nemotron-asr-host` 的既有實作);main.ts 只負責「讀」。
+ * CPU,結果應該只測一次、記住,不必每次啟動都重新探測(那個探測要實際
+ * 載入模型跑基準,不便宜)。首跑後由 {@link writeBackfilledBackend} 回填。
  */
 export function readBackfilledBackend(profile: Record<string, unknown>): string | undefined {
   const inference = profile.inference;
@@ -137,6 +144,34 @@ export function readBackfilledBackend(profile: Record<string, unknown>): string 
   if (!entry || typeof entry !== "object") return undefined;
   const backend = (entry as Record<string, unknown>).backend;
   return typeof backend === "string" ? backend : undefined;
+}
+
+/**
+ * 把引擎首跑探測出的 backend 回填進 machine-profile(Windows 首跑專用,
+ * 這也是 start 權限需要 `--allow-write=../_machine` 的唯一理由——mac
+ * 不回填,但兩平台的旗標形狀保持一致,SECURITY.md 的審查對照表比較單純)。
+ *
+ * 重新從磁碟讀最新內容再 merge(而非沿用啟動時讀進來的那份快照),避免
+ * 蓋掉引擎載入期間其他行程(例如使用者同時重跑 env-base 探測)寫入的
+ * 欄位;只動 `inference["tomato-ears"]` 這一個鍵,其餘原樣保留——與
+ * env-base 的冪等 merge 精神一致(各 app 只管自己的鍵)。
+ */
+export async function writeBackfilledBackend(
+  profilePath: string,
+  backend: string,
+): Promise<void> {
+  const profile = await readMachineProfile(profilePath);
+  const inference = (profile.inference && typeof profile.inference === "object")
+    ? profile.inference as Record<string, unknown>
+    : {};
+  const entry = (inference["tomato-ears"] && typeof inference["tomato-ears"] === "object")
+    ? inference["tomato-ears"] as Record<string, unknown>
+    : {};
+  const merged = {
+    ...profile,
+    inference: { ...inference, "tomato-ears": { ...entry, backend } },
+  };
+  await Deno.writeTextFile(profilePath, JSON.stringify(merged, null, 2) + "\n");
 }
 
 /**
@@ -165,8 +200,9 @@ export function buildEngineArgs(
 }
 
 /**
- * 檢查 `deno task setup` 是否已經完成:引擎執行檔解得出來,且模型目錄
- * 底下至少有一個檔案。
+ * 檢查 `deno task setup:*` 是否已經完成:穩定路徑的引擎執行檔存在
+ * (setup 的最後一步是 pin,見 downloader.ts 的 `extractAndPinEngine`——
+ * 它存在即代表下載+解壓+pin 全部走完),且模型目錄底下至少有一個檔案。
  *
  * why 不驗雜湊:完整的雜湊驗證是 `verify/integrity_test.ts`(Task 4)的
  * 職責——那是使用者主動要求的驗收步驟,可以接受花比較久的時間逐檔算
@@ -175,7 +211,7 @@ export function buildEngineArgs(
  */
 export async function isSetupComplete(appDir: string, platform: Platform): Promise<boolean> {
   try {
-    await resolveEngineBinaryPath(appDir, platform);
+    await Deno.stat(stableEngineBinaryPath(appDir, platform));
   } catch {
     return false;
   }
@@ -190,8 +226,9 @@ export async function isSetupComplete(appDir: string, platform: Platform): Promi
 }
 
 /**
- * 嘗試用系統預設瀏覽器開啟 `url`。允許失敗(見檔頭 why):任何錯誤
- * (權限不足、找不到對應指令、無 GUI 環境)都被吞掉,只印一則提示,
+ * 嘗試用系統預設瀏覽器開啟 `url`。允許失敗(見檔頭 why:宣告旗標下
+ * `open`/`rundll32` 沒有被授權,這條路徑預期就是 NotCapable 失敗):任何
+ * 錯誤(NotCapable、找不到對應指令、無 GUI 環境)都被吞掉,只印一則提示,
  * 不會讓整個服務因為「開瀏覽器」這種非核心步驟而中止。
  */
 export async function openBrowser(url: string): Promise<void> {
@@ -221,23 +258,31 @@ export async function openBrowser(url: string): Promise<void> {
  */
 async function run(): Promise<void> {
   const appDir = resolveAppDir();
-  const profile = await readMachineProfile(resolveMachineProfilePath());
+  const profilePath = resolveMachineProfilePath();
+  const profile = await readMachineProfile(profilePath);
   const platform = platformFromProfile(profile);
 
   if (!(await isSetupComplete(appDir, platform))) {
     throw new Error(
-      "尚未完成安裝。請先執行:deno task setup\n" +
+      "尚未完成安裝。請先執行:deno task setup:mac(Windows:setup:win)\n" +
         `(會下載 engine host 與模型檔案,驗證 SHA-256 後安裝到 ${appDir})`,
     );
   }
 
-  const binPath = await resolveEngineBinaryPath(appDir, platform);
+  const binPath = stableEngineBinaryPath(appDir, platform);
   const args = buildEngineArgs(platform, `${appDir}/model`, profile);
 
   console.log(`啟動引擎:${binPath} ${args.join(" ")}`);
   const engine = await EngineClient.spawn(binPath, args);
   console.log(`引擎就緒,backend = ${engine.backend}`);
   engine.onError = (message) => console.error(`[engine error] ${message}`);
+
+  // Windows 首跑:把實測探測出的 backend 回填進 machine-profile,下次啟動
+  // buildEngineArgs 會帶 --backend 跳過重新探測(見 readBackfilledBackend)。
+  if (platform === "windows-x64" && readBackfilledBackend(profile) === undefined) {
+    await writeBackfilledBackend(profilePath, engine.backend);
+    console.log(`已把 backend=${engine.backend} 回填進 machine-profile(下次啟動跳過探測)`);
+  }
 
   const server = startServer(appDir, engine, DEFAULT_PORT);
   const url = `http://127.0.0.1:${DEFAULT_PORT}/`;

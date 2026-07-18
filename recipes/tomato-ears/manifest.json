@@ -7,17 +7,32 @@
     "protocol": "asr-host-v1"
   },
   "permissions": {
-    "setup": [
+    "setup:mac": [
       "--allow-net",
-      "--allow-read=~/tmuh-apps/tomato-ears",
-      "--allow-write=~/tmuh-apps/tomato-ears",
+      "--allow-read=.,../_machine",
+      "--allow-write=.,../_machine",
       "--allow-run=tar",
       "--allow-env=TMUH_APPS_DIR"
     ],
-    "start": [
+    "setup:win": [
+      "--allow-net",
+      "--allow-read=.,../_machine",
+      "--allow-write=.,../_machine",
+      "--allow-run=tar",
+      "--allow-env=TMUH_APPS_DIR"
+    ],
+    "start:mac": [
       "--allow-net=127.0.0.1:43117",
-      "--allow-read=~/tmuh-apps/tomato-ears",
-      "--allow-run",
+      "--allow-read=.,../_machine",
+      "--allow-write=../_machine",
+      "--allow-run=bin/engine-host",
+      "--allow-env=TMUH_APPS_DIR"
+    ],
+    "start:win": [
+      "--allow-net=127.0.0.1:43117",
+      "--allow-read=.,../_machine",
+      "--allow-write=../_machine",
+      "--allow-run=bin/engine-host.exe",
       "--allow-env=TMUH_APPS_DIR"
     ]
   },
@@ -167,9 +182,9 @@
       }
     }
   },
-  "verify": "deno task verify",
+  "verify": "deno task verify:mac（Windows：deno task verify:win）",
   "_deviations": [
     "--allow-env=TMUH_APPS_DIR 加進 setup 與 start 兩組權限，非 Global Constraints 原始範例逐字內容：提前實作 plan Task 5 節的規定（「配方支援 TMUH_APPS_DIR…若 reference 尚未支援，本 task 先補」），於 Task 1 先行以維持 manifest/deno.json 一致。deno.json 的 task 指令本身不做 shell 展開，只能由程式碼在執行期讀 env——因此需要這個權限旗標，見 recipes/tomato-ears/deno.json 的 task 指令與 task-1-report.md 的完整說明。",
-    "permissions.start 的 --allow-run 從 Task 1 的 --allow-run=~/tmuh-apps/tomato-ears/bin（目錄）改成不限定的 --allow-run，於 Task 2 修正：實測驗證 Deno 的 --allow-run 只接受『解析得出可執行檔絕對路徑的字串』（bare 指令名經 PATH 解析，或逐字相符的絕對路徑），不支援『目錄前綴』語意——用目錄字串授權，執行期一律 NotCapable，deno task start 完全跑不起來。engine host 的實際檔名與其在解壓後 bin/ 目錄下的相對路徑因平台封裝方式不同（見 recipes/tomato-ears/reference/downloader.ts 的 resolveEngineBinaryPath why 註解：mac tar.gz 多一層版本化包裝目錄、win zip 是扁平的），在 manifest 階段無法寫死單一絕對路徑；main.ts 另外用 rundll32（win）/open（mac）嘗試自動開瀏覽器，同樣需要 --allow-run 才可能成功（允許失敗，見 reference/main.ts 的 openBrowser）。改成不限定的 --allow-run 是唯一在目前 Deno 版本下可行的做法，代價與 setup 階段 --allow-net 全開相同精神：完整性改由『只執行 SHA-256 驗證過的相依 + 已知的系統小工具』的事實保證，而非旗標本身限縮——SECURITY.md（Task 4）需要如實記錄這個 trade-off。"
+    "permissions 於 Task 2 review 後全面改為 cwd 相對權限模型（出處：Task 2 終審 review，需求原文見 task-2-report.md 的 review 修正段落）：（a）Deno 權限旗標實測不展開 ~（~/tmuh-apps/... 逐字比對永遠不命中，Task 1 的宣告對真實使用者不可用）；（b）--allow-run 實測支援『精確路徑』縮圈（相對/絕對皆可，啟動時對 cwd 解析；並會拒絕清單外的執行檔），但不支援目錄前綴。deno task 定義上以 deno.json 所在目錄（= app 目錄）為 cwd，因此 .（app 目錄）、../_machine（跨 app 共用）、bin/engine-host[.exe]（setup 解壓後 pin 出的穩定執行檔路徑，見 reference/downloader.ts 的 stableEngineBinaryPath）都是跨機器不變、可靜態宣告、且範圍嚴格小於原目錄寫法的相對路徑。tasks 與 permissions 因 --allow-run 的執行檔名差異拆為 :mac/:win 兩組。start 需要 --allow-write=../_machine 的唯一理由：Windows 首跑把實測探測出的 backend 回填進 machine-profile（reference/main.ts 的 writeBackfilledBackend；mac 不回填但旗標同形以簡化審查）。start 刻意不授權 open/rundll32——自動開瀏覽器在宣告旗標下必然 NotCapable，程式退化為印出 URL（reference/main.ts 的 openBrowser why 註解）；若 Task 5 演練證實自動開啟必要，屆時把 open 加進宣告旗標是一個顯式決策。旗標語意的實測證據固化在 reference/permissions_probe_test.ts（正反例皆有，防回歸）。"
   ]
 }

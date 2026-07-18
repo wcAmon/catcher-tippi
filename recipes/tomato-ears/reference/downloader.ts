@@ -18,11 +18,16 @@
  *   `tar.exe` 同樣是 bsdtar 移植版)兩種格式都認得同一套指令列語法,不需要
  *   為平台分岔解壓邏輯。
  *
- * 執行本模組(供 `deno task setup` 使用)所需權限旗標,與
- * `manifest.json.permissions.setup` 逐字同步:
+ * 執行本模組(供 `deno task setup:mac`/`setup:win` 使用)所需權限旗標,與
+ * `manifest.json.permissions` 的對應鍵逐字同步(**cwd 相對權限模型**:
+ * `deno task` 一定以 deno.json 所在目錄為工作目錄執行,而配方安裝時
+ * deno.json 就放在 app 目錄根部,所以 `.` 就是 app 目錄、`../_machine`
+ * 就是跨 app 共用目錄——相對路徑讓旗標可以跨機器靜態宣告,不必依賴
+ * `~` 展開;Deno 的權限旗標**不做** `~` 展開,實測見
+ * `reference/permissions_probe_test.ts`):
  *   --allow-net
- *   --allow-read=~/tmuh-apps/tomato-ears
- *   --allow-write=~/tmuh-apps/tomato-ears
+ *   --allow-read=.,../_machine
+ *   --allow-write=.,../_machine
  *   --allow-run=tar
  *   --allow-env=TMUH_APPS_DIR
  * (`--allow-net` 全開的理由:HF/GitHub 下載會經過 CDN redirect,目標網域
@@ -78,10 +83,28 @@ export interface Manifest {
 /**
  * 各平台引擎 host 執行檔在壓縮包內的檔名(見
  * `scripts/build-asr-host.sh`、`scripts/build-nemotron-asr-host.ps1`)。
- * `main.ts` 用這個名稱在 `resolveEngineBinaryPath` 找出實際 spawn 路徑。
+ * 解壓後由 `resolveEngineBinaryPath` 以這個名稱搜尋原始落點,再 pin 到
+ * {@link stableEngineBinaryPath} 的穩定路徑。
  */
 export function engineBinaryName(platform: Platform): string {
   return platform === "windows-x64" ? "nemotron-asr-host.exe" : "catcher-asr-host";
+}
+
+/**
+ * 引擎執行檔的**穩定路徑**:`<appDir>/bin/engine-host`(Windows 加 `.exe`)。
+ *
+ * why 需要穩定路徑:`deno task start` 的 `--allow-run` 旗標必須在
+ * manifest/deno.json 裡靜態宣告,而 Deno 的 `--allow-run` 只接受「解析得出
+ * 可執行檔路徑的字串」(相對/絕對路徑皆可,啟動時對 cwd 解析;**不支援**
+ * 目錄前綴語意,也不做 `~` 展開——實測見
+ * `reference/permissions_probe_test.ts`)。壓縮包解壓後的原始落點卻因平台
+ * 封裝方式而異(見 {@link resolveEngineBinaryPath} 的 why 註解),無法事先
+ * 寫死。解法:setup 階段解壓後把執行檔複製(pin)到這個固定檔名,start 的
+ * 旗標就能宣告成 `--allow-run=bin/engine-host`——跨機器、跨引擎版本都不變
+ * 的相對路徑,權限範圍也收斂到「恰好這一個檔案」。
+ */
+export function stableEngineBinaryPath(appDir: string, platform: Platform): string {
+  return `${appDir}/bin/engine-host${platform === "windows-x64" ? ".exe" : ""}`;
 }
 
 /**
@@ -208,43 +231,61 @@ async function downloadVerifiedFile(
 }
 
 /**
- * 把 engine 壓縮包解壓到 `${appDir}/bin`。
+ * 把 engine 壓縮包解壓到 `${appDir}/bin`,並把執行檔 pin 到
+ * {@link stableEngineBinaryPath} 的穩定路徑。
  *
- * why 先檢查「執行檔是否已存在」才解壓:壓縮包本身已經通過雜湊驗證,
- * 重複解壓同一份內容並不會產生錯誤結果,但對使用者體感沒有意義的 I/O——
- * 讓 `deno task setup` 重跑時能快速略過已完成的步驟。
+ * why 先檢查「穩定路徑是否已存在」才動工:壓縮包本身已經通過雜湊驗證,
+ * 重複解壓/複製同一份內容並不會產生錯誤結果,但對使用者體感沒有意義的
+ * I/O——讓 `deno task setup` 重跑時能快速略過已完成的步驟。
+ *
+ * why 用**複製**而非搬移(rename)做 pin:
+ * - Windows 端 exe 依賴同目錄的 onnxruntime/DirectML 等 DLL(zip 是扁平
+ *   的,全部解在 `bin/` 根部),複製後的 `bin/engine-host.exe` 仍與 DLL
+ *   同目錄,載入不受影響;
+ * - 保留原始檔名的那份,重跑 setup 時若穩定路徑被誤刪,可以直接從原樹
+ *   重新 pin,不必重新下載/解壓;
+ * - `Deno.copyFile` 保留權限位元(底層是 Rust `std::fs::copy`),
+ *   執行位元不會遺失。
  */
-async function extractEngineArchive(
+async function extractAndPinEngine(
   archivePath: string,
   appDir: string,
   platform: Platform,
   onProgress?: (msg: string) => void,
 ): Promise<void> {
   const binDir = `${appDir}/bin`;
+  const stablePath = stableEngineBinaryPath(appDir, platform);
   try {
-    await resolveEngineBinaryPath(appDir, platform);
-    onProgress?.("engine host:已解壓,略過");
+    await Deno.stat(stablePath);
+    onProgress?.("engine host:已就緒(穩定路徑存在),略過");
     return;
   } catch {
-    // 找不到 → 尚未解壓(或上次解壓不完整),繼續往下執行。
+    // 穩定路徑不存在 → 需要解壓和/或重新 pin,繼續往下執行。
   }
 
-  await Deno.mkdir(binDir, { recursive: true });
-  onProgress?.("engine host:解壓中…");
-  const command = new Deno.Command("tar", {
-    args: ["-xf", archivePath, "-C", binDir],
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const { success, stderr } = await command.output();
-  if (!success) {
-    throw new Error(`tar 解壓失敗(${archivePath}):${new TextDecoder().decode(stderr)}`);
+  // 原始執行檔可能已解壓過(只是穩定路徑被刪);沒有才真的跑 tar。
+  let originalPath: string;
+  try {
+    originalPath = await resolveEngineBinaryPath(appDir, platform);
+  } catch {
+    await Deno.mkdir(binDir, { recursive: true });
+    onProgress?.("engine host:解壓中…");
+    const command = new Deno.Command("tar", {
+      args: ["-xf", archivePath, "-C", binDir],
+      stdout: "piped",
+      stderr: "piped",
+    });
+    const { success, stderr } = await command.output();
+    if (!success) {
+      throw new Error(`tar 解壓失敗(${archivePath}):${new TextDecoder().decode(stderr)}`);
+    }
+    // 解壓後仍找不到執行檔 → 封裝格式跟預期不符,視為致命錯誤(而非靜默
+    // 放過,讓後續 spawn 才在更難除錯的地方失敗)。
+    originalPath = await resolveEngineBinaryPath(appDir, platform);
   }
 
-  // 解壓後仍找不到執行檔 → 封裝格式跟預期不符,視為致命錯誤(而非靜默放過,
-  // 讓後續 spawn 才在更難除錯的地方失敗)。
-  await resolveEngineBinaryPath(appDir, platform);
-  onProgress?.("engine host:解壓完成");
+  await Deno.copyFile(originalPath, stablePath);
+  onProgress?.(`engine host:已 pin 到 ${stablePath}`);
 }
 
 /**
@@ -254,10 +295,11 @@ async function extractEngineArchive(
  * 原子 rename;任何一檔驗證失敗即刪除殘檔並 throw,整個安裝視為失敗
  * (呼叫端不需要、也不應該以「部分成功」繼續)。
  *
- * 目錄配置(`~/tmuh-apps/tomato-ears/` 慣例下):
+ * 目錄配置(`appDir` = app 安裝目錄,預設即 `deno task` 的 cwd):
  * - `download/`:原始下載暫存(engine 壓縮包落地於此,驗證後保留供重跑時
  *   免重下);
- * - `bin/`:engine 壓縮包解壓後的執行檔與隨附檔案;
+ * - `bin/`:engine 壓縮包解壓後的執行檔與隨附檔案;執行檔另 pin 一份到
+ *   穩定路徑 `bin/engine-host[.exe]`(見 {@link stableEngineBinaryPath});
  * - `model/`:模型檔案,扁平存放(單一平台安裝,不需要再分子目錄)。
  */
 export async function ensureDependencies(
@@ -279,7 +321,7 @@ export async function ensureDependencies(
     "engine host",
     onProgress,
   );
-  await extractEngineArchive(archivePath, appDir, platform, onProgress);
+  await extractAndPinEngine(archivePath, appDir, platform, onProgress);
 
   for (const file of modelDep.files) {
     const url = modelDep.baseUrl + file.name;
