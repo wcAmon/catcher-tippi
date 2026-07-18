@@ -38,6 +38,12 @@ public class StdioBlackBoxTests
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             UseShellExecute = false,
+            // DEVIATION(非編譯器強制,見 task-3-report.md):不設定時 .NET 用系統 OEM
+            // codepage(遠端機為 cp950 Big5)解碼子行程 stdout,把 host 寫出的原始 UTF-8
+            // 中文位元組誤判成雙位元組 Big5 字元(觀察到 "字0" 被誤讀成 "摮?")。
+            // 顯式釘住 UTF-8,與子行程 Program.cs 的 Console.OutputEncoding 對齊。
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardInputEncoding = System.Text.Encoding.UTF8,
         };
         return Process.Start(psi) ?? throw new InvalidOperationException("failed to spawn nemotron-asr-host");
     }
