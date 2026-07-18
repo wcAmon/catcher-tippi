@@ -2,18 +2,23 @@
  * `main.ts` 的測試:只測純邏輯/I/O 輔助函式(`platformFromProfile`、
  * `buildEngineArgs`、`readBackfilledBackend`、`writeBackfilledBackend`、
  * `resolveAppDir`、`resolveMachineProfilePath`、`readMachineProfile`、
- * `isSetupComplete`),不測 `run()` 裡真正 spawn engine/起 server/開瀏覽器
- * 的組裝流程——那段由 `permissions_probe_test.ts` 的「literal `deno task
- * start:mac`」測試做黑箱驗證(以與使用者逐字相同的指令與宣告旗標執行)。
+ * `isSetupComplete`、`openBrowser` 的 TMUH_NO_BROWSER 退出路徑),不測
+ * `run()` 裡真正 spawn engine/起 server 的組裝流程——那段由
+ * `permissions_probe_test.ts` 的「literal `deno task start:mac`」測試做
+ * 黑箱驗證(以與使用者逐字相同的指令與宣告旗標執行)。
  *
  * 執行本檔所需權限旗標(dev-time 測試):
  *   deno test --allow-read --allow-write --allow-env \
  *     recipes/tomato-ears/reference/main_test.ts
  * - `--allow-read`/`--allow-write`:`isSetupComplete`/`readMachineProfile`/
  *   `writeBackfilledBackend` 測試要建臨時目錄與檔案。
- * - `--allow-env`:`resolveAppDir`/`resolveMachineProfilePath` 測試要
- *   設/刪/讀 `TMUH_APPS_DIR`(dev-time 測試需要 set/delete,比正式
- *   runtime 的 `--allow-env=TMUH_APPS_DIR` 唯讀語意更寬,不必比照 manifest)。
+ * - `--allow-env`:`resolveAppDir`/`resolveMachineProfilePath`/
+ *   `openBrowser` 測試要設/刪/讀 `TMUH_APPS_DIR` 與 `TMUH_NO_BROWSER`
+ *   (dev-time 測試需要 set/delete,比正式 runtime 的唯讀語意更寬,
+ *   不必比照 manifest)。
+ * - 刻意**不給** `--allow-run`:openBrowser 測試藉此驗證 TMUH_NO_BROWSER
+ *   路徑真的沒有嘗試 spawn(若有,NotCapable 會被 openBrowser 捕捉並印出
+ *   降級訊息,測試的 console 攔截就會看到 error 輸出而失敗)。
  */
 
 import {
@@ -25,6 +30,7 @@ import {
 import {
   buildEngineArgs,
   isSetupComplete,
+  openBrowser,
   platformFromProfile,
   readBackfilledBackend,
   readMachineProfile,
@@ -238,4 +244,33 @@ Deno.test("writeBackfilledBackend：inference 欄位原本不存在也能建立"
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test("openBrowser：TMUH_NO_BROWSER 設定時完全不 spawn，只印跳過訊息 + URL", async () => {
+  const url = "http://127.0.0.1:43117/";
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+  console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+
+  const previous = Deno.env.get("TMUH_NO_BROWSER");
+  try {
+    Deno.env.set("TMUH_NO_BROWSER", "1");
+    await openBrowser(url);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    if (previous === undefined) Deno.env.delete("TMUH_NO_BROWSER");
+    else Deno.env.set("TMUH_NO_BROWSER", previous);
+  }
+
+  // 跳過訊息(含 URL)走 console.log;console.error 必須完全沒動靜——
+  // 本測試檔沒有 --allow-run,若 openBrowser 沒有真的短路而嘗試 spawn,
+  // NotCapable 會被它內部捕捉並印出降級訊息到 console.error,這裡就會抓到。
+  assertEquals(errors, []);
+  assertEquals(logs.length, 1);
+  assertEquals(logs[0].includes("TMUH_NO_BROWSER"), true);
+  assertEquals(logs[0].includes(url), true);
 });

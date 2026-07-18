@@ -241,7 +241,14 @@ Deno.test({
         stdout: "piped",
         stderr: "piped",
         clearEnv: true,
-        env: { HOME: Deno.env.get("HOME") ?? "", PATH: `${execDir}:/usr/bin:/bin` },
+        // TMUH_NO_BROWSER=1:宣告旗標含 open(店規第 3 條的自動開瀏覽器),
+        // 但測試環境不該每跑一次就真的彈出瀏覽器分頁——用配方內建的環境
+        // 變數退出機制取得決定性行為,同時順帶驗證這個退出機制本身可用。
+        env: {
+          HOME: Deno.env.get("HOME") ?? "",
+          PATH: `${execDir}:/usr/bin:/bin`,
+          TMUH_NO_BROWSER: "1",
+        },
       }).spawn();
       const stdoutPromise = new Response(child.stdout).text();
       const stderrPromise = new Response(child.stderr).text();
@@ -297,13 +304,15 @@ Deno.test({
       }
 
       const stdout = await stdoutPromise;
-      const stderr = await stderrPromise;
+      await stderrPromise; // 消費完 stderr 串流(內容只有 deno task 的指令回顯)。
       // 宣告旗標下的完整啟動輸出:引擎 ready(fake backend)+ 服務啟動。
       assertStringIncludes(stdout, "引擎就緒,backend = fake");
       assertStringIncludes(stdout, "服務已啟動:http://127.0.0.1:43117/");
-      // 宣告旗標刻意不含 open:自動開瀏覽器必須「優雅失敗」——退化成
-      // 印出 URL,而不是讓行程崩潰(見 main.ts 檔頭 why)。
-      assertStringIncludes(stderr, "無法自動開啟瀏覽器");
+      // TMUH_NO_BROWSER 退出機制生效:不 spawn open,改印跳過訊息 + URL。
+      // (不設 TMUH_NO_BROWSER 時,宣告旗標本來就允許 open——瀏覽器會
+      // 真的開啟,那是正確行為而非測試該擋的事,所以這裡驗證的是退出
+      // 路徑,實際開啟路徑由 Task 5 mac 演練以人眼驗收。)
+      assertStringIncludes(stdout, "已依 TMUH_NO_BROWSER 略過自動開啟瀏覽器");
     } finally {
       await Deno.remove(root, { recursive: true });
     }

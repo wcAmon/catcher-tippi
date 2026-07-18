@@ -33,13 +33,14 @@
  *   `recipes/tomato-ears/` 的內容到 app 目錄,不會把整個 monorepo 帶過去)。
  *   本檔跟 `machine-profile.ts` 之間唯一的耦合是「讀寫同一份
  *   machine-profile.json 檔案」,不是程式碼 import。
- * - **開瀏覽器允許失敗**:start 的宣告旗標刻意只授權
- *   `--allow-run=bin/engine-host[.exe]`(最小權限),不含 `open`/
- *   `rundll32`——因此在宣告旗標下自動開瀏覽器必然失敗(NotCapable),
- *   `openBrowser` 捕捉後退化成印出 URL 讓使用者手動開啟。保留這段程式碼
- *   而非刪除:使用者若自行放寬旗標(加上 `open`),自動開啟立即恢復;
- *   Task 5 演練若證實自動開啟是必要體驗,再評估把 `open` 加進宣告旗標
- *   (那是顯式的權限範圍決策,不該由程式碼默默假設)。
+ * - **自動開瀏覽器(店規第 3 條)以最小系統執行檔納入縮圈清單**:
+ *   start 的宣告旗標是 `--allow-run=bin/engine-host,open`(mac)/
+ *   `--allow-run=bin/engine-host.exe,explorer`(win)——`open` 與
+ *   `explorer` 都是單一系統執行檔,授權範圍遠窄於整個 shell
+ *   (`cmd`/`sh`)。`openBrowser` 仍允許失敗(無 GUI、SSH 連線等環境):
+ *   只有 spawn 擲例外才降級為印出 URL(exit code 不做為判準,理由見
+ *   `openBrowser` 的 why 註解);另可設 `TMUH_NO_BROWSER` 環境變數明確
+ *   關閉自動開啟(測試/無頭環境用,已同步列入 --allow-env 白名單)。
  */
 
 // 注意:main.ts 刻意不 import `ensureDependencies`——`deno task setup:*` 是
@@ -226,22 +227,30 @@ export async function isSetupComplete(appDir: string, platform: Platform): Promi
 }
 
 /**
- * 嘗試用系統預設瀏覽器開啟 `url`。允許失敗(見檔頭 why:宣告旗標下
- * `open`/`rundll32` 沒有被授權,這條路徑預期就是 NotCapable 失敗):任何
- * 錯誤(NotCapable、找不到對應指令、無 GUI 環境)都被吞掉,只印一則提示,
- * 不會讓整個服務因為「開瀏覽器」這種非核心步驟而中止。
+ * 嘗試用系統預設瀏覽器開啟 `url`(店規第 3 條:啟動後瀏覽器自動開
+ * localhost 頁面)。
+ *
+ * - `TMUH_NO_BROWSER` 環境變數有設定(任何非空值)→ 直接跳過,只印 URL。
+ *   測試(permissions_probe_test.ts 的 literal-task 黑箱測試)與無頭環境
+ *   用它取得決定性行為,不然每跑一次測試就真的彈一個瀏覽器分頁。
+ * - mac 用 `open <url>`,Windows 用 `explorer <url>`(explorer 帶 URL
+ *   引數會交給預設瀏覽器開啟)——兩者都在 start 宣告旗標的
+ *   `--allow-run` 縮圈清單內。
+ * - **只有 spawn 擲例外才視為失敗**(NotCapable、找不到執行檔、無 GUI
+ *   環境),降級為印出 URL;**不看 exit code**——why:Windows 的
+ *   `explorer` 即使成功開啟也常回傳非零 exit code,用 exit code 判斷
+ *   會對使用者謊報「無法開啟」,比不判斷更糟。
  */
 export async function openBrowser(url: string): Promise<void> {
+  if (Deno.env.get("TMUH_NO_BROWSER")) {
+    console.log(`已依 TMUH_NO_BROWSER 略過自動開啟瀏覽器,請手動開啟:${url}`);
+    return;
+  }
   const command = Deno.build.os === "windows"
-    // rundll32 開瀏覽器是 Windows 的標準做法,比整個 --allow-run=cmd
-    // (等於授權任意 shell 指令)範圍窄很多。
-    ? new Deno.Command("rundll32", { args: ["url.dll,FileProtocolHandler", url] })
+    ? new Deno.Command("explorer", { args: [url] })
     : new Deno.Command("open", { args: [url] });
   try {
-    const { success } = await command.output();
-    if (!success) {
-      console.error(`無法自動開啟瀏覽器,請手動開啟:${url}`);
-    }
+    await command.output();
   } catch (err) {
     console.error(
       `無法自動開啟瀏覽器(${err instanceof Error ? err.message : String(err)}),請手動開啟:${url}`,
