@@ -17,6 +17,10 @@
 /apps/tippi-windows/obj/
 /apps/tippi-windows.tests/bin/
 /apps/tippi-windows.tests/obj/
+/apps/nemotron-asr-host/bin/
+/apps/nemotron-asr-host/obj/
+/apps/nemotron-asr-host.tests/bin/
+/apps/nemotron-asr-host.tests/obj/
 /.tools/
 
 /.env
