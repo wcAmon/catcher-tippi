@@ -25,11 +25,13 @@
     "engine": {
       "macos-arm64": {
         "url": "https://github.com/wcAmon/catcher-tippi/releases/download/asr-host-v0.1.0/catcher-asr-host-v0.1.0-macos-arm64.tar.gz",
-        "sha256": "4a536c0c95e70d5d9b8cfbd764ddf4d4208395b1407dfce93532081f67ed251c"
+        "sha256": "4a536c0c95e70d5d9b8cfbd764ddf4d4208395b1407dfce93532081f67ed251c",
+        "byteCount": 4279499
       },
       "windows-x64": {
         "url": "https://github.com/wcAmon/catcher-tippi/releases/download/nemotron-asr-host-v0.1.0/nemotron-asr-host-v0.1.0-windows-x64.zip",
-        "sha256": "10750b3e28ea2686c8442d6dc6de03fd5490f0dc0033977ccfbeb5be1fcb4667"
+        "sha256": "10750b3e28ea2686c8442d6dc6de03fd5490f0dc0033977ccfbeb5be1fcb4667",
+        "byteCount": 55332113
       }
     },
     "model": {
@@ -167,6 +169,6 @@
   },
   "verify": "deno task verify",
   "_deviations": [
-    "--allow-env=TMUH_APPS_DIR 加進 setup 與 start 兩組權限，非 Global Constraints 原始範例逐字內容：因為 reference 程式碼（Task 5+）用 TMUH_APPS_DIR 環境變數覆寫 ~/tmuh-apps 安裝目錄，deno.json 的 task 指令本身不做 shell 展開，只能由程式碼在執行期讀 env——因此需要這個權限旗標，見 recipes/tomato-ears/deno.json 的 task 指令與 task-1-report.md 的完整說明。"
+    "--allow-env=TMUH_APPS_DIR 加進 setup 與 start 兩組權限，非 Global Constraints 原始範例逐字內容：提前實作 plan Task 5 節的規定（「配方支援 TMUH_APPS_DIR…若 reference 尚未支援，本 task 先補」），於 Task 1 先行以維持 manifest/deno.json 一致。deno.json 的 task 指令本身不做 shell 展開，只能由程式碼在執行期讀 env——因此需要這個權限旗標，見 recipes/tomato-ears/deno.json 的 task 指令與 task-1-report.md 的完整說明。"
   ]
 }
