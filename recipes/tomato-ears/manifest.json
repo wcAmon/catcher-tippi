@@ -1,0 +1,172 @@
+{
+  "name": "tomato-ears",
+  "version": "0.1.0",
+  "stack": "deno",
+  "ports": {
+    "http": 43117,
+    "protocol": "asr-host-v1"
+  },
+  "permissions": {
+    "setup": [
+      "--allow-net",
+      "--allow-read=~/tmuh-apps/tomato-ears",
+      "--allow-write=~/tmuh-apps/tomato-ears",
+      "--allow-run=tar",
+      "--allow-env=TMUH_APPS_DIR"
+    ],
+    "start": [
+      "--allow-net=127.0.0.1:43117",
+      "--allow-read=~/tmuh-apps/tomato-ears",
+      "--allow-run=~/tmuh-apps/tomato-ears/bin",
+      "--allow-env=TMUH_APPS_DIR"
+    ]
+  },
+  "dependencies": {
+    "engine": {
+      "macos-arm64": {
+        "url": "https://github.com/wcAmon/catcher-tippi/releases/download/asr-host-v0.1.0/catcher-asr-host-v0.1.0-macos-arm64.tar.gz",
+        "sha256": "4a536c0c95e70d5d9b8cfbd764ddf4d4208395b1407dfce93532081f67ed251c"
+      },
+      "windows-x64": {
+        "url": "https://github.com/wcAmon/catcher-tippi/releases/download/nemotron-asr-host-v0.1.0/nemotron-asr-host-v0.1.0-windows-x64.zip",
+        "sha256": "10750b3e28ea2686c8442d6dc6de03fd5490f0dc0033977ccfbeb5be1fcb4667"
+      }
+    },
+    "model": {
+      "macos-arm64": {
+        "repo": "wcamon/catcher-asr-mlx-int8",
+        "baseUrl": "https://huggingface.co/wcamon/catcher-asr-mlx-int8/resolve/main/",
+        "_baseUrlNote": "無 revision pin，隨 main 分支浮動；完整性由逐檔 SHA-256 保證（見 apps/tippi/Sources/TippiCore/ModelStore.swift:34-41 的既有做法）。",
+        "files": [
+          {
+            "name": "weights.safetensors",
+            "sha256": "157d0efe1a3fff7a04a4709e365755a76b4c7c972bc8b1f8d58ef33d5f93acee",
+            "byteCount": 658663198
+          },
+          {
+            "name": "manifest.json",
+            "sha256": "40f7eacf4ff4929049e951d943fe15f33a01f7d238ec622737582731335dc16b",
+            "byteCount": 100746
+          },
+          {
+            "name": "config.json",
+            "sha256": "62d186fd91f518e00e7867500f1f5819225e8ee95ea3e21b546514bf2048e845",
+            "byteCount": 1376
+          },
+          {
+            "name": "generation_config.json",
+            "sha256": "993e5d4cb74a6fe9d6e7084a76b3313c1446740679be4676570c23b664fdc07e",
+            "byteCount": 193
+          },
+          {
+            "name": "processor_config.json",
+            "sha256": "ec47870f1091ea4f25539208387b45b902c92d0e3f997a30061ef88f73437ab0",
+            "byteCount": 2519
+          },
+          {
+            "name": "tokenizer.json",
+            "sha256": "3f3d481deb073b64c2082e8c7860d487a3a62774bf4e9e4faac83007e181f246",
+            "byteCount": 752051
+          },
+          {
+            "name": "tokenizer_config.json",
+            "sha256": "5c641c5b3f50702a60082690d27c1ce7fcb5a92c4a624793bcae0f21eda3d6e0",
+            "byteCount": 881
+          },
+          {
+            "name": "LICENSE",
+            "sha256": "dd6b7d50e7d7f8ce3fb28487011c6a324d812e0315ed7c6f34f2a9048932b3bf",
+            "byteCount": 2619
+          },
+          {
+            "name": "NOTICE.md",
+            "sha256": "5a220b42f4625219699656bc053188fe8b69b6c273c030512eaefdc1a28c7aaa",
+            "byteCount": 726
+          },
+          {
+            "name": "NVIDIA_MODEL_CARD.md",
+            "sha256": "e8335332bed2d69e790f61d7619098dc464f3075985f68856e53213c7aeddccb",
+            "byteCount": 53753
+          }
+        ]
+      },
+      "windows-x64": {
+        "repo": "onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4",
+        "revision": "8364d9e2dd9da23789b480bdbba9e423717e42ee",
+        "baseUrl": "https://huggingface.co/onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4/resolve/8364d9e2dd9da23789b480bdbba9e423717e42ee/",
+        "_baseUrlNote": "revision pin，非 resolve/main：見 scripts/fetch-nemotron-onnx-model.ps1 的 DEVIATION 註解（防上游 main 分支飄移導致雜湊不符）。",
+        "files": [
+          {
+            "name": "audio_processor_config.json",
+            "sha256": "ab28d41eb87ce3922006edeb9c3fad4d5ce451f9a56a12d84f470f02a5ec157b",
+            "byteCount": 413
+          },
+          {
+            "name": "decoder.onnx",
+            "sha256": "6a9f608dcbab71ebd81ffa4c198e82a5b6bb10f1c1830a94c752c5f543454df3",
+            "byteCount": 4696
+          },
+          {
+            "name": "decoder.onnx.data",
+            "sha256": "e5fd55cbeeb268f9d383e2ee72735b9fbbb13aea4bc7cd38cb73b8e16f1366c7",
+            "byteCount": 59785216
+          },
+          {
+            "name": "encoder.onnx",
+            "sha256": "0b05217594ec0bda442e43a90a298ac2471a3bdcea9b169de34214e61a730e17",
+            "byteCount": 2677548
+          },
+          {
+            "name": "encoder.onnx.data",
+            "sha256": "2f27295855aeb99ab1f8cd2254418d9ad7a087ea8dbe85f5596b4d887ea7d630",
+            "byteCount": 690089984
+          },
+          {
+            "name": "genai_config.json",
+            "sha256": "39568fbeebbe848696a1e2a01c7f33df000f72c29f2285509fd12442bda9571e",
+            "byteCount": 1892
+          },
+          {
+            "name": "joint.onnx",
+            "sha256": "e2c7d2fa40a243bf82eaca36c15698c52129de9361d2875d7f223f67fcd9482d",
+            "byteCount": 2136
+          },
+          {
+            "name": "joint.onnx.data",
+            "sha256": "2e0fb1c060f3777a1a76e78d5589dd54f01505a06dffbd2588e315508b402c12",
+            "byteCount": 37830656
+          },
+          {
+            "name": "model_config.json",
+            "sha256": "f41f943eeb1310a89dd58cf3e11e654a8ae1a788fceeb6cd1eacce3a6d081965",
+            "byteCount": 365
+          },
+          {
+            "name": "silero_vad.onnx",
+            "sha256": "a4a068cd6cf1ea8355b84327595838ca748ec29a25bc91fc82e6c299ccdc5808",
+            "byteCount": 2243022
+          },
+          {
+            "name": "tokenizer.json",
+            "sha256": "24e1e8335c8396884a86f06880271376ae46a29381cfc35c82c6295d407acec7",
+            "byteCount": 642525
+          },
+          {
+            "name": "tokenizer_config.json",
+            "sha256": "ea4b35353f468fea11f436f837d9621a29b4ba9d1c73c1ed0aa5743f5a53919e",
+            "byteCount": 183
+          },
+          {
+            "name": "vocab.txt",
+            "sha256": "ca88922ac5a92c911b79985b69634d7a4c2ef604d61b71bbe2982210dd77cd43",
+            "byteCount": 64024
+          }
+        ]
+      }
+    }
+  },
+  "verify": "deno task verify",
+  "_deviations": [
+    "--allow-env=TMUH_APPS_DIR 加進 setup 與 start 兩組權限，非 Global Constraints 原始範例逐字內容：因為 reference 程式碼（Task 5+）用 TMUH_APPS_DIR 環境變數覆寫 ~/tmuh-apps 安裝目錄，deno.json 的 task 指令本身不做 shell 展開，只能由程式碼在執行期讀 env——因此需要這個權限旗標，見 recipes/tomato-ears/deno.json 的 task 指令與 task-1-report.md 的完整說明。"
+  ]
+}

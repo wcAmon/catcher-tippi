@@ -147,3 +147,43 @@ Build succeeded,0 warnings,0 errors,約 13 秒(含 restore)。
 - Repo: `C:\Users\i5491\catcher-tippi`,checkout 於 `feat/nemotron-asr-host`。
 - Remote shell 慣例: cmd.exe,`&` 鏈指令、`cd /d` 切磁碟機、`%VAR%` 才會在 cmd 展開。
 - 若要送 PowerShell 腳本給遠端,優先用 `cat local.ps1 | ssh ... "powershell -NoProfile -ExecutionPolicy Bypass -Command -"`(stdin pipe),避免多層 shell 轉義炸掉 `$env:` 變數。
+
+## 附註:mac 端 Deno 安裝紀錄(tomato-ears 配方,Plan 3 Task 1)
+
+本機(執行本文件其餘章節、負責推 branch 的 mac)安裝 Deno,供
+`recipes/env-base/`、`recipes/tomato-ears/` 兩個配方使用。
+
+安裝指令(user-local,免管理員):
+
+```bash
+curl -fsSL https://deno.land/install.sh | sh
+```
+
+實際輸出(節錄):
+
+```
+Deno was installed successfully to /Users/wake/.deno/bin/deno
+Run '/Users/wake/.deno/bin/deno --help' to get started
+```
+
+驗證版本:
+
+```bash
+$ ~/.deno/bin/deno --version
+deno 2.9.3 (long term support, release, aarch64-apple-darwin)
+v8 14.9.207.2-rusty
+typescript 6.0.3
+```
+
+**已知結果(供後續 task 核對):**
+
+- 版本:Deno `2.9.3`(long term support)
+- 路徑:`~/.deno/bin/deno`
+- 安裝腳本**未自動**把 `~/.deno/bin` 寫進 shell profile(`~/.zshrc` 未被
+  改動);後續指令一律用完整路徑 `~/.deno/bin/deno`,或先手動
+  `export PATH="$HOME/.deno/bin:$PATH"`,不假設 `deno` 已在 PATH 上
+  ——與本文件 Windows 章節「必須用完整路徑,PATH 上另有 shim 會誤報」
+  的教訓一致。
+
+Windows 端對照(見 Global Constraints):`winget install DenoLand.Deno`
+(2.9.x),由後續 task 在遠端機器上實際安裝時記錄版本。
