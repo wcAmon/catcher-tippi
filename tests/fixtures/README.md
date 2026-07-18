@@ -71,6 +71,28 @@ Ltd., mirrored on the Hugging Face Hub.
 | 12 | 0 | `train/wav/SSB0009/SSB00090009.wav` |
 | 13 | 1 | `train/wav/SSB0011/SSB00110010.wav` |
 
+### Ground-truth transcripts
+
+Official transcripts from AISHELL-3 `train/content.txt` (pinyin stripped),
+in fixture turn order:
+
+| Turn | Utterance ID | Transcript (simplified) |
+| ---- | ------------ | ----------------------- |
+| 0  | `SSB00090001` | 伺候老婆是老公的责任 |
+| 1  | `SSB00110001` | 领导干部廉洁从政自查 |
+| 2  | `SSB00090002` | 阿尔泰的生物有什么 |
+| 3  | `SSB00110002` | 河宕村民委员会计划生育服务室 |
+| 4  | `SSB00090003` | 文成县的学校有什么 |
+| 5  | `SSB00110003` | 基层医院的医生缺乏不断学习和提高水平的动力 |
+| 6  | `SSB00090005` | 但有人说我非常耀眼 |
+| 7  | `SSB00110005` | 下辈子不做女人 |
+| 8  | `SSB00090006` | 微软推出免费增值策略 |
+| 9  | `SSB00110007` | 三百六十五 |
+| 10 | `SSB00090007` | 山海经地名有什么 |
+| 11 | `SSB00110009` | 当你孤单你会想起谁 |
+| 12 | `SSB00090009` | 我们称她为母夜叉 |
+| 13 | `SSB00110010` | 搜狐娱乐讯据香港媒体报道 |
+
 ## Construction
 
 Built by `tools/make_conversation_fixture.py`, which:

@@ -5,10 +5,12 @@
 //!   CATCHER_ASR_FIXTURE_TEXT="預期的轉錄內容" \
 //!   cargo test -p catcher-asr-host --test real_model -- --ignored
 //!
-//! 第二組(中文)執行範例:
+//! 第二組(中文)執行範例——AISHELL-3 真人語音 14 句串接
+//! (ground truth 見 tests/fixtures/README.md;簡體原文以
+//! nemotron_mlx::opencc::to_traditional 轉繁,與 host 輸出同一轉換路徑):
 //!   CATCHER_ASR_MODEL_DIR=~/path/to/catcher-asr-mlx-int8 \
-//!   CATCHER_ASR_FIXTURE_WAV=tests/fixtures/bang-wo-song-chu-zh-tw.wav \
-//!   CATCHER_ASR_FIXTURE_TEXT="幫我送出" \  (以 Step 1 確認的文本為準)
+//!   CATCHER_ASR_FIXTURE_WAV=tests/fixtures/conversation.wav \
+//!   CATCHER_ASR_FIXTURE_TEXT="伺候老婆是老公的責任領導幹部廉潔從政自查阿爾泰的生物有什麼河宕村民委員會計劃生育服務室文成縣的學校有什麼基層醫院的醫生缺乏不斷學習和提高水平的動力但有人說我非常耀眼下輩子不做女人微軟推出免費增值策略三百六十五山海經地名有什麼當你孤單你會想起誰我們稱她為母夜叉搜狐娛樂訊據香港媒體報道" \
 //!   cargo test -p catcher-asr-host --test real_model -- --ignored
 
 use std::io::{BufRead, BufReader, Write};
