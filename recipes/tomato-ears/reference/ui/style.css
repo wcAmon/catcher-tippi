@@ -1,0 +1,188 @@
+/*
+ * 番茄耳錄音頁樣式——刻意簡單:單一 CSS 檔、無外部字型/圖示 CDN(店規:
+ * 零外部資源),只用系統字型堆疊與純 CSS 畫出的顏色/邊框,任何一台裝了
+ * 瀏覽器的機器都能原樣呈現,不需要等任何網路資源載入。
+ */
+
+:root {
+  --color-bg: #f7f5f2;
+  --color-surface: #ffffff;
+  --color-border: #e0dcd5;
+  --color-text: #2b2823;
+  --color-text-muted: #79736a;
+  --color-primary: #b3552c;
+  --color-primary-hover: #9c481f;
+  --color-danger: #a4392f;
+  --color-danger-hover: #8a2f26;
+  --color-badge-bg: #efe6d8;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei",
+    sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.badge {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: var(--color-badge-bg);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.app-main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.connection-status {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.error-banner {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: #fbe9e7;
+  border: 1px solid #f0b3a9;
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.button {
+  font-size: 0.95rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-badge-bg);
+}
+
+.button-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.button-danger {
+  background: var(--color-surface);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--color-danger-hover);
+  border-color: var(--color-danger-hover);
+  color: #fff;
+}
+
+section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.partial-text {
+  min-height: 1.6em;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.final-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.final-section-header h2 {
+  margin: 0;
+}
+
+.final-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.final-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.final-item {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--color-border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.final-item:last-child {
+  border-bottom: none;
+}
+
+.empty-state {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

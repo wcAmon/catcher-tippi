@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<!--
+  番茄耳(tomato-ears)錄音頁——單檔可讀,無框架、無外部 CDN(店規:零外部
+  資源)。所有邏輯拆在同目錄的 app.js(主執行緒)與
+  downsampler-worklet.js/downsampler-core.js(AudioWorklet 降採樣),
+  這個檔案只放結構,不放行為。
+-->
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>番茄耳 · 即時語音轉錄</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>番茄耳即時語音轉錄</h1>
+      <!-- backend 徽章:僅顯示 ready 事件回報的 backend 字串,協定/店規
+           明文規定消費端不得依此值分支任何行為(見 app.js 的 why 註解),
+           初始文字在收到 ready 事件前顯示「連線中」。 -->
+      <span id="backend-badge" class="badge">後端:連線中…</span>
+    </header>
+
+    <main class="app-main">
+      <p id="connection-status" class="connection-status">正在連線至本機服務…</p>
+      <div id="error-banner" class="error-banner" hidden></div>
+
+      <section class="controls">
+        <button id="start-button" type="button" class="button button-primary">開始錄音</button>
+        <button id="stop-button" type="button" class="button button-danger">停止錄音</button>
+      </section>
+
+      <section class="partial-section">
+        <h2>即時逐字稿</h2>
+        <!-- partial 顯示是「快照替換」語意:每次收到 partial 事件整段覆寫
+             這裡的內容,不 append——app.js 的 handleServerMessage 已經
+             用 textContent 賦值(而非字串串接)實作這個語意。 -->
+        <p id="partial-text" class="partial-text" aria-live="polite"></p>
+      </section>
+
+      <section class="final-section">
+        <div class="final-section-header">
+          <h2>完整逐字稿</h2>
+          <div class="final-actions">
+            <button id="copy-all-button" type="button" class="button" disabled>複製全部</button>
+            <button id="export-button" type="button" class="button" disabled>匯出 .txt</button>
+          </div>
+        </div>
+        <!-- final 訊息列表是「累積」語意,跟上面的 partial 相反:每次收到
+             final 事件在列表尾端新增一個項目,不會取代先前的項目。 -->
+        <ul id="final-list" class="final-list"></ul>
+        <p id="empty-state"
+          class="empty-state">按下「開始錄音」後,完整的逐字稿段落會出現在這裡。</p>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
