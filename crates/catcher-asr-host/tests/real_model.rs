@@ -4,6 +4,12 @@
 //!   CATCHER_ASR_FIXTURE_WAV=~/path/to/fixture-zh.wav \
 //!   CATCHER_ASR_FIXTURE_TEXT="預期的轉錄內容" \
 //!   cargo test -p catcher-asr-host --test real_model -- --ignored
+//!
+//! 第二組(中文)執行範例:
+//!   CATCHER_ASR_MODEL_DIR=~/path/to/catcher-asr-mlx-int8 \
+//!   CATCHER_ASR_FIXTURE_WAV=tests/fixtures/bang-wo-song-chu-zh-tw.wav \
+//!   CATCHER_ASR_FIXTURE_TEXT="幫我送出" \  (以 Step 1 確認的文本為準)
+//!   cargo test -p catcher-asr-host --test real_model -- --ignored
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -51,12 +57,12 @@ fn transcribes_fixture_wav_end_to_end() {
         }
     };
 
-    // 串流解碼容許小差異:斷言預期字元的覆蓋率 ≥ 60%,而非逐字相等。
-    let hits = expected.chars().filter(|c| final_text.contains(*c)).count();
-    let coverage = hits as f64 / expected.chars().count().max(1) as f64;
+    // 正規化編輯距離:0.0 = 完全相同。比 presence-based 覆蓋率嚴格——
+    // 亂碼即使字元集重疊也會因插入/替換代價而距離飆高。
+    let distance = normalized_levenshtein(&expected, &final_text);
     assert!(
-        coverage >= 0.6,
-        "coverage {coverage:.2} too low\nexpected: {expected}\ngot: {final_text}"
+        distance <= 0.25,
+        "normalized edit distance {distance:.3} > 0.25\nexpected: {expected}\ngot: {final_text}"
     );
     drop(child.stdin.take());
     child.wait().unwrap();
@@ -70,4 +76,24 @@ fn read_wav_pcm16(path: &str) -> Vec<u8> {
         .position(|window| window == b"data")
         .expect("wav data chunk");
     bytes[data_pos + 8..].to_vec()
+}
+
+/// 字元級 Levenshtein 距離除以較長字串的字元數(0.0 = 相同,1.0 = 完全不同)。
+fn normalized_levenshtein(a: &str, b: &str) -> f64 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() && b.is_empty() {
+        return 0.0;
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()] as f64 / a.len().max(b.len()) as f64
 }
