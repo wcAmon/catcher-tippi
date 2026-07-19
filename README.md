@@ -42,6 +42,13 @@ See [`apps/tippi-windows/README.md`](apps/tippi-windows/README.md) for Windows
 requirements, model storage, features, limitations, and tests. The original
 MLX/Metal implementation and macOS app remain unchanged.
 
+## Mini-App Roadmap
+
+Catcher-Tippi is being split into composable mini-apps published as agent-assembly
+recipes on the tmuh.ai mini-app store (tomato-ears shipped; tomato-meeting,
+tomato-speaker, tomato-helper planned). See
+[docs/mini-apps-roadmap.md](docs/mini-apps-roadmap.md).
+
 ## Requirements
 
 - arm64 Apple Silicon Mac running macOS 15 or newer;
